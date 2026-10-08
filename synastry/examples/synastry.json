@@ -3,6 +3,17 @@
   "a": "Example",
   "b": "Partner",
   "flags": [],
+  "config": {
+    "orb_reduction": 2.0,
+    "a": {
+      "source": "natal-chart/examples/chart.json",
+      "house_system": "placidus"
+    },
+    "b": {
+      "source": "synastry/examples/chart_b.json",
+      "house_system": "placidus"
+    }
+  },
   "inter_aspects": [
     {
       "a": "Sun",

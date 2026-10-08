@@ -1615,7 +1615,7 @@ def test_grid_has_a_down_and_b_across():
 
 **Step 2: Run to verify it fails.**
 
-**Step 3: Implement** `compare(a, b) -> dict` returning `{"schema_version": 1, "a": a["meta"]["name"], "b": b["meta"]["name"], "flags": [...], "inter_aspects": [{"a": ..., "b": ..., "aspect", "angle", "orb", "max_orb", "applying": None}], "overlays": {"a_in_b_houses": {...}|None, "b_in_a_houses": {...}|None}}`, with flags `a_time_unknown`/`b_time_unknown` added when the respective chart carries `time_unknown`. Each inter-aspect carries `uncertain: true` when it involves the Moon of an untimed chart, false otherwise. `render_grid(result, a, b)` matches Task 8's format with header `| A \ B | ... |` and no applying suffix.
+**Step 3: Implement** `compare(a, b) -> dict` returning `{"schema_version": 1, "a": a["meta"]["name"], "b": b["meta"]["name"], "flags": [...], "inter_aspects": [{"a": ..., "b": ..., "aspect", "angle", "orb", "max_orb", "applying": None}], "overlays": {"a_in_b_houses": {...}|None, "b_in_a_houses": {...}|None}}`, with flags `a_time_unknown`/`b_time_unknown` added when the respective chart carries `time_unknown`. Each inter-aspect carries `uncertain: true` when it involves the Moon of an untimed chart, false otherwise. `render_grid(result, a, b)` matches Task 8's format with header `| A \ B | ... |` and no applying suffix; cells for `uncertain` aspects end in `?`.
 
 **Step 4: Run tests** → 5 passed.
 
