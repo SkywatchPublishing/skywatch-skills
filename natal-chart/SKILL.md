@@ -26,7 +26,7 @@ Two files, by default `chart.json` and `chart_aspects.md` next to it:
 | File | Contents |
 |---|---|
 | `chart.json` | Birth data as resolved (coordinates, IANA timezone, UTC offset, Julian day), every body's longitude, sign, degree, house, speed and retrograde flag, the four angles, twelve cusps, and the aspect list. Full schema in [`CONTRACT.md`](CONTRACT.md). |
-| `chart_aspects.md` | A Markdown grid, bodies down and across, each cell holding the aspect symbol and orb, e.g. `△ 2.3a` (`a` applying, `s` separating, no suffix for aspects to the angles). |
+| `chart_aspects.md` | A Markdown grid, bodies down and across, each cell holding the aspect symbol and orb, e.g. `△ 2.3a` (`a` applying, `s` separating, no suffix for aspects to the angles). Symbols: ☌ conjunction, ⚹ sextile, □ square, △ trine, ⚻ quincunx, ☍ opposition. |
 
 Bodies: Sun, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Chiron, Node (true by default).
 
@@ -49,6 +49,8 @@ Any aspect involving the Sun or Moon gets 2° more. Aspects to the Ascendant and
 
 ### Step 1 — Install dependencies
 
+Requires Python 3.11 or newer.
+
 ```bash
 pip install pyswisseph timezonefinder --quiet
 ```
@@ -56,6 +58,8 @@ pip install pyswisseph timezonefinder --quiet
 `timezonefinder` is only needed for `--lat/--lon` input without `--tz`.
 
 ### Step 2 — Fetch the ephemeris files (once)
+
+Script paths in these steps are relative to the skill folder: either run them from the skill directory, or write the full path as `<skill dir>/scripts/natal_chart.py`.
 
 ```bash
 python scripts/fetch_ephemeris.py
@@ -69,7 +73,7 @@ This downloads three Swiss Ephemeris data files (about 2 MB) into `ephe/` beside
 python scripts/natal_chart.py --name "Ada" --date 1990-06-15 --time 14:30 --city "London, GB"
 ```
 
-Location is given one of three ways:
+Location is given one of three ways; pass exactly one of `--city`, `--geonameid`, or `--lat/--lon`:
 
 | Option | Use when |
 |---|---|
@@ -81,7 +85,7 @@ Other options, all with sensible defaults:
 
 | Flag | Default | Alternatives |
 |---|---|---|
-| `--time HH:MM` | omitted = unknown | Local wall-clock time at the birthplace |
+| `--time HH:MM` | omitted = unknown | Local wall-clock time at the birthplace, 24-hour and zero-padded (`09:05`, not `9:05`) |
 | `--houses` | `placidus` | `koch`, `equal`, `porphyry`, `whole_sign` |
 | `--zodiac` | `tropical` | `sidereal` (Lahiri ayanamsa) |
 | `--node` | `true` | `mean` |
@@ -131,7 +135,7 @@ If no city matches at all (exit `1`, "No city over 15,000 people matches ..."), 
 
 Omit `--time` when the user does not know it. The script then:
 
-- casts the chart at 12:00 local time, so every planet except the Moon is within a fraction of a degree of its true position;
+- casts the chart at 12:00 local time, so every planet except the Moon is within about a degree of its true position (the Sun moves about 1° a day, and Mercury and Venus can move more), so quote their degrees with that uncertainty;
 - omits houses and angles entirely (`angles` and `houses` are `null`, every `house` is `null`, and there are no aspects to the Ascendant or MC);
 - sets `meta.time_unknown: true` with the flags `time_unknown` and `moon_uncertain`;
 - records `meta.moon_range`, the Moon's longitude at 00:00 and 23:59 local, since it moves 12° to 15° in a day.
@@ -184,5 +188,5 @@ Keep `chart.json` where other skills can find it: `transits-to-natal` and `synas
 | Exit code 2 | Ambiguous city: show the table, ask, re-run with `--geonameid` |
 | `No city over 15,000 people matches ...` | Use a larger nearby town, or `--lat/--lon` |
 | `No timezone found for those coordinates` | Open ocean or Antarctica: pass `--tz` explicitly |
-| Positions differ from another program by a degree or more | Check the timezone and DST for the birth date first (`meta.utc_offset`), then the zodiac setting; the ephemeris itself agrees with Astrodienst to the arc-minute |
+| Positions differ from another program by a degree or more | Check the timezone and DST for the birth date first (`meta.utc_offset`), then the zodiac setting; the engine's golden test (`tests/test_golden.py`) checks the Sun, Moon, Ascendant, MC and one intermediate cusp of one chart against Astrodienst's published values and they agree to 0.001° |
 | Rising sign disagrees by a sign | Birth time near a cusp or a wrong offset; `meta.datetime_utc` shows what was actually used |

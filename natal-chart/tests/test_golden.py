@@ -27,9 +27,14 @@ Published positions
     House 2    Aries       17°59'40"   ->  17.99444°
     Saturn     retrograde (astro.com and Astro Gold)
 
-The source publishes only the Ascendant, MC and the second cusp, so houses 1, 4,
-7, 10 (angles) and 8 (opposite the 2nd) are checked; cusps 3, 5, 6, 9, 11, 12 have
-no published value in this source and are not asserted. The arcsecond values
+The source publishes only the Ascendant, MC and the second cusp. Houses 1, 4,
+7, 10 (the angles) and 8 (opposite the 2nd) are checked, but beyond the four
+angles the only independent evidence that the Placidus intermediate cusps are
+right is cusp 2: cusp 8 is simply its opposite, and cusps 4 and 7 follow from
+the MC and Ascendant whatever the house system. Cusps 3, 5, 6, 9, 11, 12 have no
+published value in this source and are not asserted. Because this is a single
+northern mid-latitude chart, it cannot catch a house-system mix-up that only
+shows in the southern hemisphere or at high latitudes. The arcsecond values
 above agree with the engine to well under 0.001°.
 """
 import datetime as dt
