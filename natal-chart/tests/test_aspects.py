@@ -47,3 +47,37 @@ def test_applying_is_null_without_speed():
 
 def test_synastry_orbs_are_natal_minus_two():
     assert asp.max_orb("Conjunction", "Mars", "Venus", reduction=2.0) == 6.0
+
+
+def test_applying_fast_pair_that_overshoots_within_an_hour():
+    # Moon-speed body 0.1 short of an exact trine: approaching, even though it passes exact within the hour.
+    assert asp.applying(body(0, 13.2), body(120.1, 0.0), 120) is True
+
+
+def test_separating_fast_pair_just_past_exact():
+    assert asp.applying(body(120.1, 13.2), body(0, 0.0), 120) is False
+
+
+def test_applying_conjunction_across_the_zero_wrap():
+    assert asp.applying(body(359, 1.0), body(1, 0.0), 0) is True
+
+
+def test_applying_retrograde_conjunction_across_the_zero_wrap():
+    assert asp.applying(body(1, -1.0), body(359, 0.0), 0) is True
+
+
+def test_applying_opposition_from_either_side():
+    assert asp.applying(body(179, 1.0), body(0, 0.0), 180) is True
+    # delta = -179 with the first body moving slower: rel < 0, still closing on 180.
+    assert asp.applying(body(0, 0.0), body(179, 1.0), 180) is True
+    # Moving away from the opposition.
+    assert asp.applying(body(179, 0.0), body(0, 1.0), 180) is False
+
+
+def test_applying_is_null_for_equal_speeds():
+    assert asp.applying(body(10, 1.0), body(130, 1.0), 120) is None
+
+
+def test_applying_is_null_when_speed_is_none():
+    assert asp.applying(body(10, None), body(130, 1.0), 120) is None
+    assert asp.applying(body(10, 1.0), body(130, None), 120) is None

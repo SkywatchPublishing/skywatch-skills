@@ -29,6 +29,8 @@ def body_positions(jd: float, zodiac: str = "tropical", node: str = "true") -> d
     """Longitude, latitude, speed for every body. Chiron is omitted when its file is missing.
     zodiac: 'tropical' or 'sidereal' (Lahiri). node: 'true' or 'mean'."""
     flags = FLAGS
+    # FLG_SIDEREAL on this call selects the zodiac; set_sid_mode only picks the ayanamsa process-wide,
+    # and `flags |=` rebinds the local name without mutating the module constant FLAGS.
     if zodiac == "sidereal":
         swe.set_sid_mode(swe.SIDM_LAHIRI)
         flags |= swe.FLG_SIDEREAL
@@ -46,15 +48,21 @@ def body_positions(jd: float, zodiac: str = "tropical", node: str = "true") -> d
     return out
 
 
-def houses(jd: float, latitude: float, longitude: float, system: str) -> tuple[dict, list[str]]:
-    """Cusps and angles. Falls back to Whole Sign where the requested system fails (polar latitudes)."""
+def houses(jd: float, latitude: float, longitude: float, system: str,
+           zodiac: str = "tropical") -> tuple[dict, list[str]]:
+    """Cusps and angles in the same zodiac as body_positions. Falls back to Whole Sign where the
+    requested system fails (polar latitudes)."""
     flags = []
+    house_flags = 0
+    if zodiac == "sidereal":
+        swe.set_sid_mode(swe.SIDM_LAHIRI)
+        house_flags = swe.FLG_SIDEREAL  # houses_ex with this flag returns sidereal cusps and angles
     try:
-        cusps, ascmc = swe.houses(jd, latitude, longitude, HOUSE_CODES[system])
+        cusps, ascmc = swe.houses_ex(jd, latitude, longitude, HOUSE_CODES[system], house_flags)
     except swe.Error:
         if system == "whole_sign":
             raise
-        cusps, ascmc = swe.houses(jd, latitude, longitude, HOUSE_CODES["whole_sign"])
+        cusps, ascmc = swe.houses_ex(jd, latitude, longitude, HOUSE_CODES["whole_sign"], house_flags)
         system = "whole_sign"
         flags.append("polar_fallback_whole_sign")
     asc, mc = ascmc[0] % 360, ascmc[1] % 360

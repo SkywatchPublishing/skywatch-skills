@@ -19,12 +19,18 @@ def separation(lon1: float, lon2: float) -> float:
 
 
 def applying(p1: dict, p2: dict, angle: float) -> bool | None:
-    if "speed" not in p1 or "speed" not in p2:
+    """True when the pair is closing on the exact aspect, False when moving away from it,
+    None when a speed is missing or the bodies move at the same rate.
+    Uses the signed separation and relative speed analytically, so a fast body that reaches
+    exact within the hour (the Moon, say) is still reported as applying."""
+    if p1.get("speed") is None or p2.get("speed") is None:
         return None
-    now = separation(p1["longitude"], p2["longitude"])
-    step = 1 / 24  # one hour ahead
-    later = separation(p1["longitude"] + p1["speed"] * step, p2["longitude"] + p2["speed"] * step)
-    return abs(later - angle) < abs(now - angle)
+    rel = p1["speed"] - p2["speed"]
+    if abs(rel) < 1e-9:
+        return None
+    delta = ((p1["longitude"] - p2["longitude"] + 180) % 360) - 180  # signed, in (-180, 180]
+    target = angle if delta >= 0 else -angle  # nearest exact aspect on delta's side (0 stays 0)
+    return (delta - target) * rel < 0
 
 
 def find_aspects(bodies: dict[str, dict], reduction: float = 0.0, pairs=None) -> list[dict]:

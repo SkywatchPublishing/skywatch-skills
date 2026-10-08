@@ -46,3 +46,57 @@ def test_polar_falls_back_to_whole_sign():
     assert houses["system"] == "whole_sign"
     assert houses["cusps"][0] % 30 == pytest.approx(0.0)
     assert flags == ["polar_fallback_whole_sign"]
+
+
+def test_sidereal_houses_match_sidereal_planets():
+    tropical, _ = eph.houses(2451545.0, 40.7, -74.0, "placidus")
+    sidereal, flags = eph.houses(2451545.0, 40.7, -74.0, "placidus", zodiac="sidereal")
+    assert flags == []
+    assert tropical["angles"]["ascendant"] == pytest.approx(274.26, abs=0.01)
+    assert sidereal["angles"]["ascendant"] == pytest.approx(250.40, abs=0.01)
+    assert (tropical["angles"]["ascendant"] - sidereal["angles"]["ascendant"]) == pytest.approx(23.857, abs=0.01)
+    assert (tropical["cusps"][9] - sidereal["cusps"][9]) % 360 == pytest.approx(23.857, abs=0.01)
+
+
+def test_sidereal_whole_sign_cusps_use_sidereal_sign_boundaries():
+    whole, _ = eph.houses(2451545.0, 40.7, -74.0, "whole_sign", zodiac="sidereal")
+    asc = whole["angles"]["ascendant"]
+    assert asc == pytest.approx(250.40, abs=0.01)
+    assert whole["cusps"][0] % 30 == pytest.approx(0.0)
+    assert whole["cusps"][0] == pytest.approx((asc // 30) * 30)
+
+
+def test_sidereal_polar_falls_back_to_whole_sign():
+    houses, flags = eph.houses(2451545.0, 70.0, 20.0, "placidus", zodiac="sidereal")
+    assert houses["system"] == "whole_sign"
+    assert houses["cusps"][0] % 30 == pytest.approx(0.0)
+    assert flags == ["polar_fallback_whole_sign"]
+
+
+def test_chiron_is_dropped_when_only_its_file_is_missing(monkeypatch):
+    import swisseph as swe
+    real = swe.calc_ut
+
+    def fake(jd, ident, flags):
+        if ident == swe.CHIRON:
+            raise swe.Error("SwissEph file 'seas_18.se1' not found")
+        return real(jd, ident, flags)
+
+    monkeypatch.setattr(swe, "calc_ut", fake)
+    pos = eph.body_positions(2451545.0)
+    assert "Chiron" not in pos
+    assert pos["Sun"]["longitude"] == pytest.approx(280.3689, abs=0.001)
+
+
+def test_error_for_another_body_is_reraised(monkeypatch):
+    import swisseph as swe
+    real = swe.calc_ut
+
+    def fake(jd, ident, flags):
+        if ident == swe.MARS:
+            raise swe.Error("boom")
+        return real(jd, ident, flags)
+
+    monkeypatch.setattr(swe, "calc_ut", fake)
+    with pytest.raises(swe.Error):
+        eph.body_positions(2451545.0)
