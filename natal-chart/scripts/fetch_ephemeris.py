@@ -12,6 +12,8 @@ Files (about 2 MB total, AGPL-3.0 from Astrodienst):
 Without them the planets use the built-in Moshier ephemeris and Chiron is omitted.
 """
 import argparse
+import os
+import shutil
 import sys
 import urllib.request
 from pathlib import Path
@@ -32,11 +34,29 @@ def missing(directory: Path) -> list[str]:
     return [f for f in FILES if not (directory / f).exists()]
 
 
+def download(url: str, dest: Path, timeout: float = 60) -> None:
+    """Download url to dest atomically: write to dest.part, then rename.
+
+    A dropped connection or empty response leaves no file behind, so missing()
+    never mistakes a truncated download for a complete one.
+    """
+    part = dest.with_name(dest.name + ".part")
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response, part.open("wb") as out:
+            shutil.copyfileobj(response, out)
+        if part.stat().st_size == 0:
+            raise OSError(f"Empty response from {url}")
+        os.replace(part, dest)
+    except BaseException:
+        part.unlink(missing_ok=True)
+        raise
+
+
 def fetch(directory: Path) -> list[str]:
     directory.mkdir(parents=True, exist_ok=True)
     fetched = []
     for name in missing(directory):
-        urllib.request.urlretrieve(url_for(name), directory / name)
+        download(url_for(name), directory / name)
         fetched.append(name)
     return fetched
 

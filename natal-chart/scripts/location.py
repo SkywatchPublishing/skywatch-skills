@@ -44,13 +44,35 @@ def load_table(path: Path = DEFAULT_TABLE) -> list[City]:
         ]
 
 
+def _name_matches(key: str, city: City) -> bool:
+    return key in (city.name.casefold(), city.asciiname.casefold())
+
+
 def lookup(query: str, table: list[City]) -> City:
-    name, _, region = (part.strip() for part in query.partition(","))
-    key = name.casefold()
-    region = region.upper()
-    hits = [c for c in table if key in (c.name.casefold(), c.asciiname.casefold())]
-    if region:
-        hits = [c for c in hits if region in (c.country.upper(), c.admin1.upper())]
+    """Resolve a city query.
+
+    The whole query is first matched case-insensitively against name/asciiname,
+    so names that themselves contain commas ("Mianzhu, Deyang, Sichuan") work.
+    Otherwise the query is split on commas into a name plus trailing region
+    tokens, each of which must equal the candidate's country or admin1 code, so
+    "Paris, TX", "Paris, FR" and the printed label "Paris, TX, US" all resolve.
+    """
+    whole = query.strip().casefold()
+    hits = [c for c in table if _name_matches(whole, c)]
+    regions: list[str] = []
+    if not hits:
+        name, *regions = (part.strip() for part in query.split(","))
+        regions = [r.upper() for r in regions if r]
+        key = name.casefold()
+        by_name = [c for c in table if _name_matches(key, c)]
+        hits = [c for c in by_name
+                if all(r in (c.country.upper(), c.admin1.upper()) for r in regions)]
+        if by_name and not hits:
+            by_name.sort(key=lambda c: -c.population)
+            labels = ", ".join(c.label for c in by_name[:5])
+            raise UnknownLocation(
+                f"Found {by_name[0].name!r} but the region {', '.join(regions)!r} did not match. "
+                f"Use a country code like FR or a region code like TX; candidates: {labels}")
     hits.sort(key=lambda c: -c.population)
     if not hits:
         raise UnknownLocation(f"No city over 15,000 people matches {query!r}; pass --lat/--lon/--tz instead")

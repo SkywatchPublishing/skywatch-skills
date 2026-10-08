@@ -326,7 +326,7 @@ git commit -m "Add GeoNames city table and its build script"
 - Create: `natal-chart/scripts/location.py`
 - Test: `natal-chart/tests/test_location.py`
 
-Lookup rules: case-insensitive match on `name` or `asciiname`; an optional ", XX" suffix filters by country code or admin1 (so "Paris, FR" and "Paris, TX" both work). One match returns it. Several matches raise `AmbiguousLocation` carrying the candidates, sorted by population. None raise `UnknownLocation`.
+Lookup rules: the whole query is first matched case-insensitively against `name` or `asciiname` (so names containing commas such as "Mianzhu, Deyang, Sichuan" resolve); otherwise the query is split on commas into a name plus trailing region tokens, each of which must equal a candidate's country code or admin1 code (so "Paris, FR", "Paris, TX" and the printed label "Paris, TX, US" all work). A name match whose region tokens do not fit raises `UnknownLocation` naming the city and up to five candidate labels. One match returns it. Several matches raise `AmbiguousLocation` carrying the candidates, sorted by population. None raise `UnknownLocation`.
 
 **Step 1: Write the failing test**
 
