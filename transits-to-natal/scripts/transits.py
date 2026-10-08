@@ -64,6 +64,7 @@ def sky_at(date: dt.date, tz: str, names: list[str], zodiac: str = "tropical",
     jd = noon_jd(date, tz)
     flags = FLAGS
     if zodiac.startswith("sidereal"):
+        # set_sid_mode is process-global, but harmless: FLG_SIDEREAL selects the zodiac per call.
         swe.set_sid_mode(swe.SIDM_LAHIRI)
         flags |= swe.FLG_SIDEREAL
     out = {}
@@ -95,6 +96,7 @@ def hits_for_day(date: dt.date, chart: dict, names: list[str]) -> list[dict]:
     meta = chart["meta"]
     sky = sky_at(date, meta["timezone"], names, meta.get("zodiac", "tropical"), meta.get("node", "true"))
     targets = natal_targets(chart)
+    offset = utc_offset_label(date, meta["timezone"])
     hits = []
     for t_name, pos in sky.items():
         for n_name, n_lon in targets.items():
@@ -103,7 +105,7 @@ def hits_for_day(date: dt.date, chart: dict, names: list[str]) -> list[dict]:
                 orb = abs(sep - angle)
                 if orb <= ORB:
                     hits.append({
-                        "date": date, "transit": t_name, "aspect": aspect, "natal": n_name,
+                        "date": date, "utc_offset": offset, "transit": t_name, "aspect": aspect, "natal": n_name,
                         "orb": round(orb, 3),
                         "applying": is_applying(pos["longitude"], pos["speed"], n_lon, angle),
                         "retrograde": pos["speed"] < 0,
@@ -121,6 +123,7 @@ def scan(chart: dict, start: dt.date, end: dt.date, names: list[str]):
 
 
 def utc_offset_label(date: dt.date, tz: str) -> str:
+    """UTC offset of local noon on `date` in `tz`, as '-04:00'. Computed per day so DST changes land on the right row."""
     off = dt.datetime.combine(date, dt.time(12, 0), tzinfo=ZoneInfo(tz)).utcoffset()
     total = int(off.total_seconds())
     sign = "+" if total >= 0 else "-"
@@ -132,17 +135,17 @@ def _flag(value) -> str:
     return "" if value is None else ("yes" if value else "no")
 
 
-def write_csv(rows, path: Path, chart: dict, start: dt.date | None = None) -> None:
-    rows = list(rows)
-    tz = chart["meta"]["timezone"]
-    if start is None:
-        start = rows[0]["date"] if rows else dt.date.today()
+CSV_HEADER = ["Date", "Time", "UTC Offset", "Transit", "Aspect", "Natal", "Orb (°)", "Applying", "Retrograde"]
+
+
+def write_csv(rows, path: Path) -> None:
+    """Header-clean CSV (no comment lines) so csv.DictReader and pandas.read_csv parse it as is.
+    Time is always 12:00 local; UTC Offset is that noon's offset, carried on each row by hits_for_day."""
     with open(path, "w", newline="", encoding="utf-8") as f:
-        f.write(f"# noon in {tz} (UTC{utc_offset_label(start, tz)})\n")
         w = csv.writer(f)
-        w.writerow(["Date", "Transit", "Aspect", "Natal", "Orb (°)", "Applying", "Retrograde"])
+        w.writerow(CSV_HEADER)
         for r in rows:
-            w.writerow([r["date"].isoformat(), r["transit"], r["aspect"], r["natal"],
+            w.writerow([r["date"].isoformat(), "12:00", r["utc_offset"], r["transit"], r["aspect"], r["natal"],
                         f"{r['orb']:.3f}", _flag(r["applying"]), _flag(r["retrograde"])])
 
 
@@ -151,8 +154,13 @@ def main(argv=None) -> int:
     p.add_argument("chart", type=Path, help="chart.json written by natal_chart.py")
     p.add_argument("--start", required=True, type=dt.date.fromisoformat)
     p.add_argument("--end", required=True, type=dt.date.fromisoformat)
-    p.add_argument("--fast", action="store_true", help="also Sun, Mercury, Venus, Mars")
-    p.add_argument("--moon", action="store_true", help="also the Moon (floods long ranges)")
+    p.add_argument("--fast", action="store_true",
+                   help="also Sun, Mercury, Venus, Mars (many rows over long ranges; a noon sample can "
+                        "also miss an exact hit on a fast day)")
+    p.add_argument("--moon", action="store_true",
+                   help="also the Moon, noon-snapshot hits only: it moves about 13 degrees a day, so one "
+                        "sample with a 1 degree orb misses most Moon aspects; use the astrology-ephemeris "
+                        "skill for exact Moon times")
     p.add_argument("--out", type=Path, help="default transits_<start>_<end>.csv")
     a = p.parse_args(argv)
     if a.end < a.start:
@@ -172,7 +180,7 @@ def main(argv=None) -> int:
         names.remove("Chiron")
     out = a.out or Path(f"transits_{a.start.isoformat()}_{a.end.isoformat()}.csv")
     rows = list(scan(chart, a.start, a.end, names))
-    write_csv(rows, out, chart, a.start)
+    write_csv(rows, out)
     print(f"Wrote {len(rows)} rows to {out}")
     return 0
 
