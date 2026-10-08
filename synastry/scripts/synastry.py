@@ -2,7 +2,22 @@
 
 The aspect config and helpers are copied from natal-chart/scripts (never imported across
 skill folders). Synastry orbs are the natal table minus 2 degrees (``REDUCTION``).
+
+Usage:
+    python synastry.py --a chartA.json --b chartB.json [--out synastry.json] [--grid synastry.md]
+    python synastry.py --a-birth '--name Ada --date 1990-06-15 --time 14:30 --geonameid 2643743' \
+                       --b-birth '--name Bob --date 1988-02-02 --geonameid 5128581'
+
+``--a-birth``/``--b-birth`` are shell-style strings handed verbatim to the natal-chart script.
 """
+
+import argparse
+import json
+import shlex
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 
 SCHEMA_VERSION = 1
 REDUCTION = 2.0
@@ -104,3 +119,112 @@ def render_grid(result: dict, a: dict, b: dict) -> str:
     for row in rows:
         lines.append(f"| {row} | " + " | ".join(lookup.get((row, col), "") for col in cols) + " |")
     return "\n".join(lines) + "\n"
+
+
+# --- command line ---------------------------------------------------------------------
+
+NATAL_MISSING = ("synastry needs the natal-chart skill installed beside it to accept raw birth data; "
+                 "pass chart files instead")
+
+
+def find_natal_script() -> Path | None:
+    """The sibling natal-chart script: beside this skill, then the user and project skill folders."""
+    rel = Path("natal-chart") / "scripts" / "natal_chart.py"
+    candidates = [
+        Path(__file__).resolve().parents[2] / rel,
+        Path.home() / ".claude" / "skills" / rel,
+        Path.cwd() / ".claude" / "skills" / rel,
+    ]
+    return next((c for c in candidates if c.is_file()), None)
+
+
+class Parser(argparse.ArgumentParser):
+    """argparse exits 2 on usage errors; that code is passed through from natal-chart, so exit 1."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        sys.exit(1)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--a", type=Path, help="chart.json for person A")
+    p.add_argument("--b", type=Path, help="chart.json for person B")
+    p.add_argument("--a-birth", help="raw birth arguments for A, as one shell-style string for natal_chart.py")
+    p.add_argument("--b-birth", help="raw birth arguments for B, as one shell-style string for natal_chart.py")
+    p.add_argument("--out", type=Path, default=Path("synastry.json"))
+    p.add_argument("--grid", type=Path, help="markdown grid path (default: <out stem>.md)")
+    return p
+
+
+class DelegationFailed(Exception):
+    def __init__(self, code: int, stdout: str, stderr: str):
+        super().__init__(f"natal_chart.py exited {code}")
+        self.code, self.stdout, self.stderr = code, stdout, stderr
+
+
+def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
+    """Run the natal script with the user's raw arguments, writing to ``out``, and load the result."""
+    cmd = [sys.executable, "-I", str(natal_script), *shlex.split(birth), "--out", str(out)]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise DelegationFailed(proc.returncode, proc.stdout, proc.stderr)
+    return load_chart(out)
+
+
+def load_chart(path: Path) -> dict:
+    with open(path, encoding="utf-8") as fh:
+        chart = json.load(fh)
+    if chart.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"{path}: expected schema_version {SCHEMA_VERSION}, got {chart.get('schema_version')!r}")
+    return chart
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    for side in "ab":
+        file_arg, birth_arg = getattr(args, side), getattr(args, f"{side}_birth")
+        if file_arg and birth_arg:
+            parser.error(f"give --{side} or --{side}-birth, not both")
+        if not file_arg and not birth_arg:
+            parser.error(f"give --{side} or --{side}-birth")
+
+    natal_script = None
+    if args.a_birth or args.b_birth:
+        natal_script = find_natal_script()
+        if natal_script is None:
+            print(NATAL_MISSING, file=sys.stderr)
+            return 1
+
+    charts = {}
+    try:
+        with tempfile.TemporaryDirectory(prefix="synastry-") as tmp:
+            for side in "ab":
+                birth = getattr(args, f"{side}_birth")
+                if birth:
+                    charts[side] = cast_chart(natal_script, birth, Path(tmp) / f"{side}.json")
+                else:
+                    charts[side] = load_chart(getattr(args, side))
+    except DelegationFailed as exc:
+        # Exit 2 (ambiguous city) carries the candidate table on stdout; pass both through.
+        sys.stdout.write(exc.stdout)
+        sys.stderr.write(exc.stderr)
+        return exc.code
+    except (OSError, ValueError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    result = compare(charts["a"], charts["b"])
+    grid_path = args.grid or args.out.with_suffix(".md")
+    args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    grid_path.write_text(render_grid(result, charts["a"], charts["b"]), encoding="utf-8")
+    print(f"Wrote {args.out} and {grid_path}")
+    for flag in result["flags"]:
+        print(f"Note: {flag}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
