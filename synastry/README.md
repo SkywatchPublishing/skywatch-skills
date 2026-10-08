@@ -3,7 +3,7 @@
 Compares two natal charts: every inter-aspect from one person's planets and angles to the other's, and house overlays (each person's planets placed in the other's houses). Reads two `chart.json` files from the `natal-chart` skill, or raw birth data that it hands to `natal-chart`, and writes `synastry.json` plus a Markdown grid.
 
 **Input:** two `chart.json` files with `schema_version: 1`, or birth data for either person
-**Output:** `synastry.json` (inter-aspects, overlays, flags) and `synastry.md` (grid, A down, B across)
+**Output:** `synastry.json` (inter-aspects, overlays, flags, config) and `synastry.md` (grid, A down, B across)
 **Orbs:** the natal table minus 2° (6/4/6/6/1/6 for conjunction, sextile, square, trine, quincunx, opposition), +2° when a Sun or Moon is involved
 
 ## Example output
@@ -35,7 +35,7 @@ and the overlays say where each body falls in the other chart's houses, for exam
 | Sun |  |  | △ 3.8 | □ 2.8 | ☍ 7.8 | |
 | Moon |  |  |  | ☌ 3.9 | □ 1.1 | |
 
-There is no applying/separating mark: two natal charts do not move relative to each other.
+There is no applying/separating mark: two natal charts do not move relative to each other. A cell ends in `?` when the aspect is uncertain (the Moon of an untimed chart). The JSON also carries a `config` block recording the orb reduction and, per side, where the chart came from and its house system.
 
 ## Install
 
@@ -58,7 +58,7 @@ python scripts/synastry.py \
   --b-birth "--name Bob --date 1988-02-02 --geonameid 5128581"
 ```
 
-Each birth string is the full argument list for `natal_chart.py`, quoted as one shell word. Options: `--out synastry.json`, `--grid synastry.md`. Exit code `2` means a `--city` in a birth string matched several places; the candidates are printed as a table and the script should be re-run with `--geonameid` in the string. Exit `1` covers bad arguments, unreadable charts, and raw birth data with no `natal-chart` found.
+Each birth string is the full argument list for `natal_chart.py`, quoted as one shell word. Options: `--out synastry.json`, `--grid synastry.md` (must differ from `--out`). Exit code `2` means a `--city` in a birth string matched several places; the candidates are printed as a table and the script should be re-run with `--geonameid` in the string. Exit `1` covers bad arguments, unreadable or malformed charts (one-line error on stderr), and raw birth data with no `natal-chart` found.
 
 Requires Python 3.11 or newer. The script itself uses the standard library only; `pyswisseph` is needed through `natal-chart` for raw birth data.
 
@@ -66,8 +66,8 @@ Requires Python 3.11 or newer. The script itself uses the standard library only;
 
 - Both charts are read as written; nothing is recomputed from the sky, so the synastry always agrees with each natal chart. Synastry from two chart files and from the same two birth strings produce identical JSON, and the tests check that round trip.
 - Every body (and the Ascendant and MC of any timed chart) in A is checked against every one in B with the aspect table at the top of `scripts/synastry.py`, reduced by `REDUCTION = 2.0`. The table and helpers are copied from `natal-chart`, not imported, so this folder is copyable on its own.
-- Overlays use the host chart's `houses.cusps`. When one person's birth time is unknown, their chart has no houses, so the overlay into their chart is `null`, the other direction is still filled in, their Moon aspects are flagged `uncertain`, and `a_time_unknown` or `b_time_unknown` is set.
-- Raw birth data is delegated: the string is split shell-style and run through `natal_chart.py`, found beside this skill or in `.claude/skills/`, into a temporary directory. The natal script's exit `2` and its candidate table are passed through unchanged.
+- Overlays use the host chart's `houses.cusps`. When one person's birth time is unknown, their chart has no houses, so the overlay into their chart is `null`, the other direction is still filled in, their Moon aspects are flagged `uncertain` (and end in `?` in the grid), and `a_time_unknown` or `b_time_unknown` is set. Every other flag from each natal chart is carried with an `a_` or `b_` prefix and printed as a `Note:` line.
+- Raw birth data is delegated: the string is split shell-style and run through `natal_chart.py`, found beside this skill or in `.claude/skills/`, into a temporary directory. The natal script's exit `2` and its candidate table are passed through unchanged, as are its `Note:` lines and stderr.
 
 ## Why it exists
 

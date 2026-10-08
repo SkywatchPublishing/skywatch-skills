@@ -22,8 +22,8 @@ Two files, by default `synastry.json` and `synastry.md` next to it:
 
 | File | Contents |
 |---|---|
-| `synastry.json` | `a` and `b` (the two names), `flags`, `inter_aspects`, and `overlays`. Each inter-aspect carries `a` (the body or angle in A's chart), `b` (the body or angle in B's chart), `aspect`, `angle`, `orb`, `max_orb`, `applying` (always `null`, see below) and `uncertain`. `overlays.a_in_b_houses` maps each of A's bodies to the house it falls in by B's cusps; `overlays.b_in_a_houses` is the reverse. Either overlay is `null` when the host chart has no houses. |
-| `synastry.md` | A Markdown grid with A's bodies and angles down the left and B's across the top, each cell holding the aspect symbol and orb, e.g. `△ 3.8`. Symbols: ☌ conjunction, ⚹ sextile, □ square, △ trine, ⚻ quincunx, ☍ opposition. |
+| `synastry.json` | `schema_version`, `a` and `b` (the two names), `flags`, `config`, `inter_aspects`, and `overlays`. `config` records `orb_reduction` (2.0) and, for each side, `source` (the chart file path, or `"birth data"` when cast from a birth string) and that chart's `house_system`. Each inter-aspect carries `a` (the body or angle in A's chart), `b` (the body or angle in B's chart), `aspect`, `angle`, `orb`, `max_orb`, `applying` (always `null`, see below) and `uncertain`. `overlays.a_in_b_houses` maps each of A's bodies to the house it falls in by B's cusps; `overlays.b_in_a_houses` is the reverse. Either overlay is `null` when the host chart has no houses. |
+| `synastry.md` | A Markdown grid with A's bodies and angles down the left and B's across the top, each cell holding the aspect symbol and orb, e.g. `△ 3.8`, with a trailing `?` (`△ 3.8?`) when the aspect is `uncertain`. Symbols: ☌ conjunction, ⚹ sextile, □ square, △ trine, ⚻ quincunx, ☍ opposition. |
 
 Bodies: Sun, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Chiron, Node, plus the Ascendant and MC of any chart that has a birth time.
 
@@ -40,7 +40,7 @@ Orbs are the natal table minus 2°:
 
 Any inter-aspect involving either person's Sun or Moon gets 2° more (the same luminary bonus as `natal-chart`), so a Sun-Venus conjunction is allowed up to 8°.
 
-**Applying and separating are not computed.** Two natal charts are fixed snapshots; they do not move relative to each other, so every `applying` field is `null` and the grid cells have no `a`/`s` suffix.
+**Applying and separating are not computed.** Two natal charts are fixed snapshots; they do not move relative to each other, so every `applying` field is `null` and the grid cells have no `a`/`s` suffix (only the `?` for uncertain Moon contacts).
 
 ---
 
@@ -57,7 +57,7 @@ Each person is given one of two ways:
 | `--a chartA.json` / `--b chartB.json` | A `chart.json` from `natal-chart` already exists for that person. |
 | `--a-birth "..."` / `--b-birth "..."` | You only have birth data. The string is the full argument list for `natal_chart.py`, quoted as one shell word, e.g. `--a-birth "--name Ada --date 1990-06-15 --time 14:30 --city 'London, GB'"`. |
 
-Mix them freely (`--a` with `--b-birth`). A birth string is handed verbatim to the natal-chart script, which the skill looks for in this order: beside this skill in the same parent folder, then `~/.claude/skills/natal-chart/scripts/natal_chart.py`, then `./.claude/skills/natal-chart/scripts/natal_chart.py` under the current directory. The cast chart is kept in a temporary directory; if the user will want it again (for a wheel, or transits), run `natal-chart` yourself with `--out` and pass the file instead.
+Mix them freely (`--a` with `--b-birth`). A birth string is handed verbatim to the natal-chart script, which the skill looks for in this order: beside this skill in the same parent folder, then `~/.claude/skills/natal-chart/scripts/natal_chart.py`, then `./.claude/skills/natal-chart/scripts/natal_chart.py` under the current directory. The natal script's `Note:` lines (its flags, such as `polar_fallback_whole_sign`) and anything it writes to stderr are forwarded, so you see them as you would when running `natal-chart` directly. The cast chart is kept in a temporary directory; if the user will want it again (for a wheel, or transits), run `natal-chart` yourself with `--out` and pass the file instead.
 
 ### Step 2 — Run the script
 
@@ -77,14 +77,14 @@ python scripts/synastry.py --a ada.json --b-birth "--name Bob --date 1988-02-02 
 | Flag | Default | Meaning |
 |---|---|---|
 | `--out` | `synastry.json` | Output JSON path |
-| `--grid` | `<out stem>.md` | Markdown grid path |
+| `--grid` | `<out stem>.md` | Markdown grid path; must differ from `--out` |
 
 Exit codes:
 
 | Code | Meaning |
 |---|---|
 | `0` | Success; both paths are printed. |
-| `1` | Bad arguments (both `--a` and `--a-birth`, or neither), an unreadable chart file, a chart with the wrong `schema_version`, or raw birth data given when no `natal-chart` script can be found (`synastry needs the natal-chart skill installed beside it to accept raw birth data; pass chart files instead`). |
+| `1` | Bad arguments (both `--a` and `--a-birth`, or neither, or `--grid` naming the same file as `--out`), an unreadable or malformed chart file (invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`; each reported as one line on stderr), or raw birth data given when no `natal-chart` script can be found (`synastry needs the natal-chart skill installed beside it to accept raw birth data; pass chart files instead`). |
 | `2` | A `--city` in a birth string matched several places. The natal-chart candidate table is printed on stdout; nothing is written. |
 
 On exit `2`, show the candidate table to the user and ask which place they mean, exactly as the `natal-chart` skill does. Then re-run with `--geonameid <id>` inside the same birth string in place of `--city`. If the user already said which one ("Paris, Texas"), write `--city 'Paris, TX'` in the string.
@@ -101,7 +101,9 @@ If a birth string has no `--time`, or a chart file carries `meta.time_unknown`, 
 
 - **Inter-aspects** are computed for every body. That person's Moon can be anywhere within roughly 12° to 15° (it was cast at local noon), so every inter-aspect to that Moon has `uncertain: true`. All other inter-aspects are `uncertain: false`. Their Ascendant and MC are absent from both the aspect list and the grid.
 - **Overlays** are produced only in the direction that has houses. If B's time is unknown, `a_in_b_houses` is `null` (A cannot be placed in houses B does not have) while `b_in_a_houses` is still filled in: B's planets do fall somewhere in A's chart.
-- **Flags** `a_time_unknown` and/or `b_time_unknown` are set so the reading can say so.
+- **Flags** `a_time_unknown` and/or `b_time_unknown` are set so the reading can say so, and the grid cell for each uncertain contact ends in `?`.
+
+`flags` also carries every flag from each natal chart with an `a_` or `b_` prefix (`a_chiron_unavailable`, `b_polar_fallback_whole_sign`, `a_moon_uncertain`, and so on), and the script prints each one as a `Note:` line after writing, so nothing the natal cast warned about is lost.
 
 When both times are unknown, both overlays are `null`, both Moons are uncertain, and the grid is bodies only.
 
@@ -127,7 +129,9 @@ The script writes files; the conversation needs a reading. From `synastry.json` 
 | Points compared | Every body in `bodies`, plus `angles.ascendant` and `angles.mc` when the chart has them |
 | Aspects | Conjunction, opposition, square, trine 6°; sextile 4°; quincunx 1°; +2° when the Sun or Moon of either chart is involved |
 | Orb source | The natal table copied into `scripts/synastry.py` with `REDUCTION = 2.0`; change the reduction there, not the table |
-| Applying | Always `null`; no suffix in the grid |
+| Applying | Always `null`; no suffix in the grid, only `?` for uncertain cells |
+| Flags | Each chart's `meta.flags` prefixed with `a_`/`b_`, plus `a_time_unknown`/`b_time_unknown`; printed as `Note:` lines |
+| Config | `config.orb_reduction`, `config.a/b.source`, `config.a/b.house_system` in `synastry.json` |
 | Overlays | `house_of` against the host's `houses.cusps`; `null` when the host has none |
 | Dependencies | Standard library only. `pyswisseph` is needed indirectly, through `natal-chart`, for raw birth data |
 
@@ -145,6 +149,10 @@ The script writes files; the conversation needs a reading. From `synastry.json` 
 | Exit code `2` with a table of places | Ambiguous city in a birth string. Show the table, ask, and re-run with `--geonameid` inside the string. |
 | `give --a or --a-birth, not both` | Each person is given exactly one way. |
 | `expected schema_version 1, got None` | The file is not a `natal-chart` output. Re-cast it; do not edit the version by hand. |
+| `not valid JSON`, `expected a chart object`, `missing meta.name` or `missing bodies` | The chart file is truncated or hand-edited; one line on stderr, exit `1`. Re-run `natal-chart`. |
+| `--grid and --out are the same file` | Pick a different `--grid` path (or let it default to `<out stem>.md`). |
+| A grid cell ends in `?` | That contact involves the Moon of an untimed chart; `uncertain: true` in the JSON. Say it is approximate. |
+| `Note: a_chiron_unavailable` (or another prefixed flag) | A flag carried over from that person's natal chart; read it as the `natal-chart` skill explains it. |
 | `ModuleNotFoundError: swisseph` on stderr | The delegated natal script could not import `pyswisseph`. Run `pip install pyswisseph` in the environment the script runs in; see the `natal-chart` troubleshooting table. |
 | An overlay is `null` | The host chart has no houses (`time_unknown`). Expected; report the other direction only. |
 | No Ascendant or MC column for one person | That chart is untimed. Expected. |

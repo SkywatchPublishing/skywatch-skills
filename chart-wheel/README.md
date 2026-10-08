@@ -38,9 +38,10 @@ Requires Python 3.11 or newer and nothing else: no packages, no ephemeris files.
 
 - `scripts/wheel_geometry.py` maps a zodiac longitude to a point on the canvas (the Ascendant pinned at 9 o'clock, angles increasing counter-clockwise) and spreads glyphs that sit within 6° of each other so they do not overlap.
 - `scripts/chart_wheel.py` draws the rings in order: sign sectors, house cusps and the four angles, aspect chords on an inner circle, then the planet ticks, glyphs and labels on top. Captions outside the wheel carry the name, local time, place, house system and any flags.
-- Aspect lines come straight from the chart's `aspects` list, so the wheel always matches the aspect grid; `applying: false` is drawn dashed.
+- Aspect lines come straight from the chart's `aspects` list, so the wheel always matches the aspect grid; `applying: false` is drawn dashed; `true` and `null` (aspects to the angles) are solid.
 - For an untimed chart (`meta.time_unknown`) there are no angles or houses, so 0° Aries is pinned at 9 o'clock, the house ring is skipped, and the caption says so.
-- Radii, colours, glyphs and the font stack are constants at the top of `scripts/chart_wheel.py`. Fonts are named, not embedded; Chiron ⚷, the Node ☊ and ℞ depend on the viewer having a symbol font.
+- Radii, colours, glyphs and the font stack are constants at the top of `scripts/chart_wheel.py`. Fonts are named, not embedded; Chiron ⚷, the Node ☊ and ℞ depend on the viewer having a symbol font. Glyphs carry the text-presentation selector so browsers do not substitute colour emoji.
+- A malformed chart (bad JSON, wrong `schema_version`, no `meta` or `bodies`) gives a one-line `chart_wheel:` error on stderr and exit code `1`; nothing is written.
 
 ## Why it exists
 

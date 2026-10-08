@@ -29,9 +29,9 @@ Reading from the outside in:
 | Planet ring | A tick at each body's true longitude on the inner edge of the house ring, the body's glyph (☉ ☽ ☿ ♀ ♂ ♃ ♄ ♅ ♆ ♇ ⚷ ☊) inside it, and a degree label such as `24°17'` below the glyph, with ` ℞` appended for a retrograde body. |
 | Aspect lines | Chords across the inner circle joining aspected bodies and angles. Red for the hard aspects (opposition, square), blue for the soft ones (trine, sextile), grey for the quincunx. Conjunctions are not drawn; the glyphs sitting together say it already. |
 
-Line style carries one more fact: a **solid** aspect line is applying, a **dashed** line is separating. Aspects to the Ascendant and MC have no applying/separating value and are drawn solid.
+Line style carries one more fact: a **solid** aspect line is applying, a **dashed** line is separating. Aspects to the Ascendant and MC have no applying/separating value (`applying: null`) and are drawn solid.
 
-When bodies crowd together (a stellium, or a tight conjunction) the glyphs are nudged apart so they do not overlap, and each nudged glyph gets a thin grey **lead line** from its true-position tick in to the glyph. The ticks and the aspect lines always use the true longitude; only the glyph and its label move. Degree labels of nudged neighbours are staggered at two radii so they do not touch.
+When bodies crowd together (a stellium, or a tight conjunction) the glyphs are nudged apart so they do not overlap, and each nudged glyph gets a thin grey **lead line** from its true-position tick in to the glyph. The ticks and the aspect lines always use the true longitude; only the glyph and its label move. Degree labels of close neighbours are staggered through three radii so they do not touch.
 
 Two captions sit outside the wheel: the name, local date-time and timezone at the top; the place, house system, zodiac (when sidereal) and any chart flags at the bottom.
 
@@ -60,7 +60,7 @@ python scripts/chart_wheel.py chart.json --out wheel.svg
 | `chart.json` | Path to the chart file. |
 | `--out` | Output SVG path. Default `wheel.svg` in the current directory. |
 
-The script prints the output path on success and exits `0`. On a missing file, unreadable JSON or an unsupported schema version it prints `chart_wheel: <reason>` on stderr and exits `1` without writing anything.
+The script prints the output path on success and exits `0`. On a missing file, unreadable JSON, an unsupported schema version or a malformed chart (no `meta` or `bodies` object, missing longitudes) it prints `chart_wheel: <reason>` on stderr and exits `1` without writing anything. A chart whose `meta.location` is absent still renders; the place is simply left out of the bottom caption.
 
 **Examples:**
 ```bash
@@ -93,11 +93,12 @@ See "Presenting the wheel" below.
 | Canvas | 800×800 user units, `viewBox="0 0 800 800"`, white background; scales to any size |
 | Orientation | Ascendant at 9 o'clock; zodiac and houses run counter-clockwise, so the MC is near the top and house 1 lies just below the left horizon |
 | Untimed charts | 0° Aries at 9 o'clock, no house ring, no angles |
-| Ring radii | Sign ring 340–380, house ring 300–340, glyphs at 270, labels at 240 (224 when staggered), aspect circle 210; the whole wheel is scaled by 0.85 about the centre so the captions clear it |
+| Ring radii | Sign ring 340–380, house ring 300–340, glyphs at 270, labels at 240 (224 and 208 when staggered: `LABEL_STAGGER = 16`, `LABEL_LEVELS = 3`), aspect circle 210; the whole wheel is scaled by 0.85 about the centre so the captions clear it |
 | Aspect families | Opposition and square `#c0392b` (red); trine and sextile `#2e86c1` (blue); quincunx `#7f8c8d` (grey); conjunction not drawn |
-| Line style | Solid = applying, dashed `6 4` = separating, solid for aspects to angles |
+| Line style | Dashed `6 4` only when `applying` is `false`; `true` and `null` (aspects to angles) are solid |
+| Degree labels | `DEGREE_FONT = 12` user units, about 10px after the wheel scale; neighbours closer than `LABEL_PAD = 6` units step inward |
 | Glyph spacing | Minimum 6° between displayed glyphs (`MIN_GAP`); nudged glyphs get a lead line from the true tick |
-| Fonts | Named, not embedded: DejaVu Sans, Segoe UI Symbol, Noto Sans Symbols2, Apple Symbols, then sans-serif |
+| Fonts | Named, not embedded: DejaVu Sans, Segoe UI Symbol, Noto Sans Symbols2, Apple Symbols, then sans-serif. Every sign and planet glyph carries the text-presentation selector U+FE0E so viewers do not swap in colour emoji |
 
 - Everything the wheel shows is read from `chart.json`: bodies and their longitudes, `angles`, `houses.cusps`, the `aspects` list with its `applying` flag, and `meta` for the captions. Nothing is recomputed, so the wheel always agrees with the aspect grid.
 - The geometry (angle-to-point mapping and the glyph spreading) lives in `scripts/wheel_geometry.py`, imported by sibling path; keep the two files together when copying the skill.
@@ -112,8 +113,9 @@ See "Presenting the wheel" below.
 |---|---|
 | `chart_wheel: [Errno 2] No such file or directory` | The path to `chart.json` is wrong, or no chart has been cast yet. Run `natal-chart` first and pass the path it printed. |
 | `chart_wheel: unsupported chart schema_version None` or a number other than `1` | The file is not a `natal-chart` output (or is from a newer contract). Re-cast with the current `natal-chart`; do not edit the version field by hand. |
-| `chart_wheel: Expecting value ...` or a `KeyError` | The JSON is truncated or hand-edited. Re-run `natal-chart` to regenerate it. |
+| `chart_wheel: Expecting value ...`, `chart_wheel: 'bodies'` or another one-line `chart_wheel:` error | The JSON is truncated or hand-edited (exit `1`). Re-run `natal-chart` to regenerate it. |
 | Glyphs show as boxes (`▯`) or question marks | The viewer's font lacks the symbol. Chiron, the Node and ℞ are the usual casualties. Open the SVG in a browser, or rasterise on a machine with DejaVu Sans or Noto Sans Symbols2 installed. |
-| Labels touch or overlap in a tight stellium | Four or more bodies within a few degrees exhaust the two label radii. Raise `MIN_GAP` or `LABEL_STAGGER` at the top of `scripts/chart_wheel.py`, or tell the user the exact degrees from `chart.json` and let the lead lines show which glyph is which. |
+| Labels touch or overlap in a tight stellium | Five or more bodies within a few degrees exhaust the three label radii. Raise `MIN_GAP`, `LABEL_STAGGER` or `LABEL_LEVELS` at the top of `scripts/chart_wheel.py`, or tell the user the exact degrees from `chart.json` and let the lead lines show which glyph is which. |
+| Glyphs render as colour emoji | Should not happen: each glyph is followed by U+FE0E (text presentation). If a viewer still shows emoji, rasterise the SVG instead. |
 | No houses or angles drawn | `meta.time_unknown` is true: expected. The caption says so; there is no rising sign without a birth time. |
 | Wheel looks rotated compared with another program | Most software also puts the Ascendant at 9 o'clock; a program that fixes 0° Aries on the left is showing the same chart with a different convention. Check the `ASC` label. |
