@@ -14,6 +14,8 @@ The wheel for a chart cast for 1990-06-15 at 12:00 in New York City (Placidus, t
 
 Red lines are oppositions and squares, blue are trines and sextiles, grey is the quincunx. Solid lines are applying, dashed are separating. Glyphs that had to be nudged apart carry a thin lead line back to their true position.
 
+Examples are produced by: `python scripts/chart_wheel.py ../natal-chart/examples/chart.json --out examples/wheel.svg`
+
 ## Install
 
 ```bash
@@ -24,7 +26,7 @@ cp -r chart-wheel .claude/skills/
 cp -r chart-wheel ~/.claude/skills/
 ```
 
-Then ask Claude to "draw my chart" or "show me the wheel". It needs a `chart.json`, so install `natal-chart` alongside it; Claude will cast the chart first when there is none.
+Then ask Claude to "draw my chart" or "show me the wheel". It reads a `chart.json` and needs nothing else to run; `natal-chart` is what produces that file, so install it alongside when there is no chart yet and Claude will cast one first.
 
 ## Run the script directly
 

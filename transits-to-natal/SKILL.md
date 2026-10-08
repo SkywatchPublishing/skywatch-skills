@@ -13,7 +13,7 @@ description: >
 
 # Transits to Natal Skill
 
-Compare the moving sky against a cast birth chart, day by day, and write the hits as a CSV in the same shape as the `astrology-ephemeris` skill's output. The input is a `chart.json` from the `natal-chart` skill; the output is a table the user can read, filter, or feed to a write-up.
+Compare the moving sky against a cast birth chart, day by day, and write the hits as a CSV in the same one-row-per-hit style as the `astrology-ephemeris` skill's output. The input is a `chart.json` from the `natal-chart` skill; the output is a table the user can read, filter, or feed to a write-up.
 
 ---
 
@@ -43,7 +43,7 @@ Transiting bodies:
 | Fast | Sun, Mercury, Venus, Mars | `--fast` |
 | Moon | Moon | `--moon` |
 
-Natal targets: every body in `chart.json` (Sun through Pluto, Chiron, Node) plus the Ascendant, MC, Descendant, and IC. The angles are included only when the chart has a known birth time; a chart with `meta.time_unknown: true` is scanned against its bodies alone.
+Natal targets: every body in `chart.json` (Sun through Pluto, Chiron, Node) plus the Ascendant, MC, Descendant, and IC. The angles are included only when the chart has a known birth time; a chart with `meta.time_unknown: true` is scanned against its bodies alone. The natal Moon of an untimed chart is still a target, at its noon position, so transits to it carry the same uncertainty as the chart's `moon_uncertain` flag: the real natal Moon may sit up to 6-7° either side.
 
 Aspects: conjunction 0°, sextile 60°, square 90°, trine 120°, quincunx 150°, opposition 180°, all with a flat 1° orb. The zodiac follows the chart (`meta.zodiac`), so a sidereal chart is scanned against sidereal transits.
 

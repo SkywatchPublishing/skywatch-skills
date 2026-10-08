@@ -65,3 +65,16 @@ def test_cli_longitude_out_of_range_exits_1(tmp_path):
     r = run("--name", "T", "--date", "1990-06-15", "--lat", "0", "--lon", "181", "--tz", "UTC", cwd=tmp_path)
     assert r.returncode == 1
     assert "--lon" in r.stderr
+
+
+def test_cli_city_combined_with_coordinates_exits_1(tmp_path):
+    r = run("--name", "T", "--date", "1990-06-15", "--city", "London, GB", "--lat", "51.5", "--lon", "-0.13", cwd=tmp_path)
+    assert r.returncode == 1
+    assert "exactly one" in r.stderr
+    assert not (tmp_path / "chart.json").exists()
+
+
+def test_cli_geonameid_combined_with_coordinates_exits_1(tmp_path):
+    r = run("--name", "T", "--date", "1990-06-15", "--geonameid", "2643743", "--lat", "51.5", "--lon", "-0.13", cwd=tmp_path)
+    assert r.returncode == 1
+    assert "exactly one" in r.stderr

@@ -33,6 +33,8 @@ together with the angles, the twelve cusps, the resolved birth data (coordinates
 
 `a` marks an applying aspect, `s` a separating one. The full file layout is documented in [`CONTRACT.md`](CONTRACT.md).
 
+Examples are produced by: `python scripts/natal_chart.py --name Example --date 1990-06-15 --time 12:00 --geonameid 5128581 --out examples/chart.json`
+
 ## Install
 
 ```bash

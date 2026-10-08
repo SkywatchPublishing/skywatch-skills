@@ -55,6 +55,8 @@ def validate_args(args) -> str | None:
     """Return an error message for an invalid combination, or None."""
     if args.time is not None and args.time.utcoffset() is not None:
         return "--time must be a local wall-clock time without a UTC offset"
+    if (args.city or args.geonameid) and (args.lat is not None or args.lon is not None):
+        return "Pass exactly one of --city, --geonameid, or --lat/--lon, not a mix"
     if args.lat is not None and not -90 <= args.lat <= 90:
         return f"--lat must be between -90 and 90, got {args.lat}"
     if args.lon is not None and not -180 <= args.lon <= 180:

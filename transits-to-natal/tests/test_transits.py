@@ -108,3 +108,8 @@ def test_main_rejects_end_before_start(tmp_path, capsys):
     chart.write_text("{}", encoding="utf-8")
     assert tr.main([str(chart), "--start", "2026-04-16", "--end", "2026-04-15"]) == 1
     assert "--end must not be before --start" in capsys.readouterr().err
+
+
+def test_aspect_table_and_orb_are_the_documented_constants():
+    assert tr.ASPECTS == {"Conjunction": 0, "Sextile": 60, "Square": 90, "Trine": 120, "Quincunx": 150, "Opposition": 180}
+    assert tr.ORB == 1.0

@@ -190,3 +190,4 @@ Keep `chart.json` where other skills can find it: `transits-to-natal` and `synas
 | `No timezone found for those coordinates` | Open ocean or Antarctica: pass `--tz` explicitly |
 | Positions differ from another program by a degree or more | Check the timezone and DST for the birth date first (`meta.utc_offset`), then the zodiac setting; the engine's golden test (`tests/test_golden.py`) checks the Sun, Moon, Ascendant, MC and one intermediate cusp of one chart against Astrodienst's published values and they agree to 0.001° |
 | Rising sign disagrees by a sign | Birth time near a cusp or a wrong offset; `meta.datetime_utc` shows what was actually used |
+| Birth on a clock-change day | A local time inside a spring-forward gap or an autumn repeat is accepted as given by `zoneinfo` (first occurrence), so check `meta.datetime_utc` in `chart.json` when a birth falls on a DST switch day |

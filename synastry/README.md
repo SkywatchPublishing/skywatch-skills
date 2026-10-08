@@ -37,6 +37,8 @@ and the overlays say where each body falls in the other chart's houses, for exam
 
 There is no applying/separating mark: two natal charts do not move relative to each other. A cell ends in `?` when the aspect is uncertain (the Moon of an untimed chart). The JSON also carries a `config` block recording the orb reduction and, per side, where the chart came from and its house system.
 
+Examples are produced by (from the repo root): `python natal-chart/scripts/natal_chart.py --name Partner --date 1988-02-02 --time 09:15 --geonameid 2643743 --out synastry/examples/chart_b.json` and then `python synastry/scripts/synastry.py --a natal-chart/examples/chart.json --b synastry/examples/chart_b.json --out synastry/examples/synastry.json`
+
 ## Install
 
 ```bash

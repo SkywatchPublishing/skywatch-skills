@@ -13,7 +13,7 @@ Each skill is a self-contained folder you can drop into `.claude/skills/` and us
 | [astrology-ephemeris](astrology-ephemeris/) | A CSV of every major planetary aspect for a given month, with exact Moon times, computed with the Swiss Ephemeris | `cp -r astrology-ephemeris ~/.claude/skills/` |
 | [natal-chart](natal-chart/) | A birth chart cast from date, time and place: `chart.json` with every body, the angles, house cusps and aspects, plus a Markdown aspect grid | `cp -r natal-chart ~/.claude/skills/` |
 | [chart-wheel](chart-wheel/) | A self-contained SVG chart wheel drawn from `chart.json`: sign ring, houses, planet glyphs with degrees, aspect lines | `cp -r chart-wheel ~/.claude/skills/` |
-| [transits-to-natal](transits-to-natal/) | A daily CSV of transiting aspects to a natal chart over any date range, in the same shape as the ephemeris CSV | `cp -r transits-to-natal ~/.claude/skills/` |
+| [transits-to-natal](transits-to-natal/) | A daily CSV of transiting aspects to a natal chart over any date range, in the same one-row-per-hit style as the astrology-ephemeris CSV | `cp -r transits-to-natal ~/.claude/skills/` |
 | [synastry](synastry/) | Two charts compared: every inter-aspect with orbs, house overlays in both directions, as `synastry.json` and a Markdown grid | `cp -r synastry ~/.claude/skills/` |
 
 More skills are added as they are proven in daily use.
@@ -39,7 +39,7 @@ cp -r skywatch-skills/astrology-ephemeris ~/.claude/skills/
 cp -r skywatch-skills/natal-chart skywatch-skills/chart-wheel skywatch-skills/transits-to-natal skywatch-skills/synastry ~/.claude/skills/
 ```
 
-The chart skills need the Swiss Ephemeris data files once; run `python natal-chart/scripts/fetch_ephemeris.py` after copying. `chart-wheel` and `synastry` read the `chart.json` that `natal-chart` writes, so install `natal-chart` alongside them.
+The chart skills need the Swiss Ephemeris data files once; run `python natal-chart/scripts/fetch_ephemeris.py` after copying. `chart-wheel`, `transits-to-natal` and `synastry` run on their own from an existing `chart.json`; `natal-chart` is needed to produce that file, so install it alongside them unless you already have charts.
 
 Use project scope (`.claude/skills/` inside a repo) when you want the skill to travel with a codebase.
 

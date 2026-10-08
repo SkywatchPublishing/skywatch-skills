@@ -1,6 +1,6 @@
 # transits-to-natal
 
-Scans the moving sky against a cast natal chart and writes the transiting aspects as a daily CSV, using the Swiss Ephemeris. Takes the `chart.json` produced by the `natal-chart` skill.
+Scans the moving sky against a cast natal chart and writes the transiting aspects as a daily CSV, in the same one-row-per-hit style as the astrology-ephemeris CSV, using the Swiss Ephemeris. Takes the `chart.json` produced by the `natal-chart` skill.
 
 **Transiting bodies:** Jupiter, Saturn, Uranus, Neptune, Pluto, Chiron, Node by default; Sun, Mercury, Venus, Mars with `--fast`; Moon with `--moon`
 **Natal targets:** every body in the chart plus the Ascendant, MC, Descendant, and IC when the birth time is known
@@ -16,6 +16,8 @@ Scans the moving sky against a cast natal chart and writes the transiting aspect
 | 2026-04-03 | 12:00 | -04:00 | Node | Sextile | Uranus | 0.406 | yes | yes |
 
 A full month for the natal-chart example chart (1990-06-15, New York City) is in [`examples/transits_2026-04-01_2026-04-30.csv`](examples/transits_2026-04-01_2026-04-30.csv): a Jupiter return exact on April 2, Saturn sextile Mercury, Pluto trine Mercury, and the Node sextile Uranus, each persisting across consecutive days as the slow bodies crawl through the orb.
+
+Examples are produced by: `python scripts/transits.py ../natal-chart/examples/chart.json --start 2026-04-01 --end 2026-04-30 --out examples/transits_2026-04-01_2026-04-30.csv`
 
 ## Install
 
