@@ -8,13 +8,15 @@ Usage:
     python natal_chart.py --name "Ada" --date 1990-06-15 --lat 51.5 --lon -0.13   # timezone from coordinates
 
 Omit --time when the birth time is unknown: the chart is cast at noon with no houses.
-Exit code 2 means the city was ambiguous; the candidates are printed. Re-run with --geonameid.
+Exit codes: 0 success; 1 bad arguments or unknown location (message on stderr);
+2 the city was ambiguous; the candidates are printed. Re-run with --geonameid.
 """
 import argparse
 import datetime as dt
 import json
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import chart as ch          # noqa: E402
@@ -22,8 +24,17 @@ import grid                 # noqa: E402
 import location as loc      # noqa: E402
 
 
+class Parser(argparse.ArgumentParser):
+    """argparse exits 2 on usage errors; that code is reserved for an ambiguous city, so exit 1."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        raise SystemExit(1)
+
+
 def parse_args(argv):
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--name", required=True)
     p.add_argument("--date", required=True, type=dt.date.fromisoformat)
     p.add_argument("--time", type=dt.time.fromisoformat, help="HH:MM local; omit if unknown")
@@ -38,6 +49,22 @@ def parse_args(argv):
     p.add_argument("--out", type=Path, default=Path("chart.json"))
     p.add_argument("--grid", type=Path)
     return p.parse_args(argv)
+
+
+def validate_args(args) -> str | None:
+    """Return an error message for an invalid combination, or None."""
+    if args.time is not None and args.time.utcoffset() is not None:
+        return "--time must be a local wall-clock time without a UTC offset"
+    if args.lat is not None and not -90 <= args.lat <= 90:
+        return f"--lat must be between -90 and 90, got {args.lat}"
+    if args.lon is not None and not -180 <= args.lon <= 180:
+        return f"--lon must be between -180 and 180, got {args.lon}"
+    if args.tz:
+        try:
+            ZoneInfo(args.tz)
+        except (ZoneInfoNotFoundError, ValueError):
+            return f"Unknown timezone {args.tz!r}; use an IANA name such as Europe/London"
+    return None
 
 
 def resolve_location(args):
@@ -60,6 +87,9 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     if not (args.city or args.geonameid or args.lat is not None):
         print("Give --city, --geonameid, or --lat/--lon/--tz", file=sys.stderr)
+        return 1
+    if (err := validate_args(args)) is not None:
+        print(err, file=sys.stderr)
         return 1
     try:
         location, tz = resolve_location(args)

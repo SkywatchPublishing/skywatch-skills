@@ -18,11 +18,11 @@ def sign_of(lon: float) -> tuple[str, float]:
 
 
 def format_degree(lon: float) -> str:
-    sign, deg = sign_of(lon)
-    whole = int(deg)
-    minutes = int(round((deg - whole) * 60))
-    if minutes == 60:
-        whole, minutes = whole + 1, 0
+    # Round the whole longitude to the nearest arc-minute first so a value a
+    # hair under a sign boundary rolls over into the next sign (never "30°00'").
+    total_minutes = round(lon % 360 * 60) % (360 * 60)
+    sign = SIGNS[total_minutes // (30 * 60)]
+    whole, minutes = divmod(total_minutes % (30 * 60), 60)
     return f"{whole}°{minutes:02d}' {sign}"
 
 

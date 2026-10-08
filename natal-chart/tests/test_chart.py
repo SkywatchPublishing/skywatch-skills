@@ -11,6 +11,15 @@ def test_sign_formatting():
     assert ch.format_degree(359.99) == "29°59' Pisces"
 
 
+def test_format_degree_rounds_across_sign_boundary():
+    # Rounding to the nearest arc-minute happens on the whole longitude, so
+    # 29°59.9994' Aries becomes 0°00' Taurus rather than the impossible "30°00' Aries".
+    assert ch.format_degree(29.99999) == "0°00' Taurus"
+    assert ch.format_degree(359.99999) == "0°00' Aries"
+    # 29.9916° = 1799.496', which Python's round() takes down to 1799' (29°59').
+    assert ch.format_degree(29.9916) == "29°59' Aries"
+
+
 def test_house_of():
     cusps = [116.6, 140.1, 165.2, 190.3, 219.4, 254.3, 296.6, 320.1, 345.2, 10.3, 39.4, 74.3]
     assert ch.house_of(84.1, cusps) == 12
