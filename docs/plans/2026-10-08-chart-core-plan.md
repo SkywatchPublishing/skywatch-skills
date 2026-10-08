@@ -957,7 +957,7 @@ def build_chart(name: str, date: dt.date, time: dt.time | None, timezone: str, l
 
     houses = angles = None
     if "time_unknown" not in flags:
-        houses, house_flags = eph.houses(jd, location["latitude"], location["longitude"], house_system)
+        houses, house_flags = eph.houses(jd, location["latitude"], location["longitude"], house_system, zodiac)
         flags += house_flags
         angles = houses.pop("angles")
 
