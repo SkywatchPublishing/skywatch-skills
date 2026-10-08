@@ -326,7 +326,7 @@ git commit -m "Add GeoNames city table and its build script"
 - Create: `natal-chart/scripts/location.py`
 - Test: `natal-chart/tests/test_location.py`
 
-Lookup rules: case-insensitive match on `name` or `asciiname`; an optional ", XX" suffix filters by country code or admin1 (so "Paris, FR" and "Paris, TX" both work). One match returns it. Several matches raise `AmbiguousLocation` carrying the candidates, sorted by population. None raise `UnknownLocation`.
+Lookup rules: the whole query is first matched case-insensitively against `name` or `asciiname` (so names containing commas such as "Mianzhu, Deyang, Sichuan" resolve); otherwise the query is split on commas into a name plus trailing region tokens, each of which must equal a candidate's country code or admin1 code (so "Paris, FR", "Paris, TX" and the printed label "Paris, TX, US" all work). A name match whose region tokens do not fit raises `UnknownLocation` naming the city and up to five candidate labels. One match returns it. Several matches raise `AmbiguousLocation` carrying the candidates, sorted by population. None raise `UnknownLocation`.
 
 **Step 1: Write the failing test**
 
@@ -520,6 +520,60 @@ def test_polar_falls_back_to_whole_sign():
     assert houses["system"] == "whole_sign"
     assert houses["cusps"][0] % 30 == pytest.approx(0.0)
     assert flags == ["polar_fallback_whole_sign"]
+
+
+def test_sidereal_houses_match_sidereal_planets():
+    tropical, _ = eph.houses(2451545.0, 40.7, -74.0, "placidus")
+    sidereal, flags = eph.houses(2451545.0, 40.7, -74.0, "placidus", zodiac="sidereal")
+    assert flags == []
+    assert tropical["angles"]["ascendant"] == pytest.approx(274.26, abs=0.01)
+    assert sidereal["angles"]["ascendant"] == pytest.approx(250.40, abs=0.01)
+    assert (tropical["angles"]["ascendant"] - sidereal["angles"]["ascendant"]) == pytest.approx(23.857, abs=0.01)
+    assert (tropical["cusps"][9] - sidereal["cusps"][9]) % 360 == pytest.approx(23.857, abs=0.01)
+
+
+def test_sidereal_whole_sign_cusps_use_sidereal_sign_boundaries():
+    whole, _ = eph.houses(2451545.0, 40.7, -74.0, "whole_sign", zodiac="sidereal")
+    asc = whole["angles"]["ascendant"]
+    assert asc == pytest.approx(250.40, abs=0.01)
+    assert whole["cusps"][0] % 30 == pytest.approx(0.0)
+    assert whole["cusps"][0] == pytest.approx((asc // 30) * 30)
+
+
+def test_sidereal_polar_falls_back_to_whole_sign():
+    houses, flags = eph.houses(2451545.0, 70.0, 20.0, "placidus", zodiac="sidereal")
+    assert houses["system"] == "whole_sign"
+    assert houses["cusps"][0] % 30 == pytest.approx(0.0)
+    assert flags == ["polar_fallback_whole_sign"]
+
+
+def test_chiron_is_dropped_when_only_its_file_is_missing(monkeypatch):
+    import swisseph as swe
+    real = swe.calc_ut
+
+    def fake(jd, ident, flags):
+        if ident == swe.CHIRON:
+            raise swe.Error("SwissEph file 'seas_18.se1' not found")
+        return real(jd, ident, flags)
+
+    monkeypatch.setattr(swe, "calc_ut", fake)
+    pos = eph.body_positions(2451545.0)
+    assert "Chiron" not in pos
+    assert pos["Sun"]["longitude"] == pytest.approx(280.3689, abs=0.001)
+
+
+def test_error_for_another_body_is_reraised(monkeypatch):
+    import swisseph as swe
+    real = swe.calc_ut
+
+    def fake(jd, ident, flags):
+        if ident == swe.MARS:
+            raise swe.Error("boom")
+        return real(jd, ident, flags)
+
+    monkeypatch.setattr(swe, "calc_ut", fake)
+    with pytest.raises(swe.Error):
+        eph.body_positions(2451545.0)
 ```
 
 **Step 2: Run to verify it fails** → `ModuleNotFoundError: No module named 'ephemeris'`.
@@ -558,6 +612,8 @@ def body_positions(jd: float, zodiac: str = "tropical", node: str = "true") -> d
     """Longitude, latitude, speed for every body. Chiron is omitted when its file is missing.
     zodiac: 'tropical' or 'sidereal' (Lahiri). node: 'true' or 'mean'."""
     flags = FLAGS
+    # FLG_SIDEREAL on this call selects the zodiac; set_sid_mode only picks the ayanamsa process-wide,
+    # and `flags |=` rebinds the local name without mutating the module constant FLAGS.
     if zodiac == "sidereal":
         swe.set_sid_mode(swe.SIDM_LAHIRI)
         flags |= swe.FLG_SIDEREAL
@@ -575,15 +631,21 @@ def body_positions(jd: float, zodiac: str = "tropical", node: str = "true") -> d
     return out
 
 
-def houses(jd: float, latitude: float, longitude: float, system: str) -> tuple[dict, list[str]]:
-    """Cusps and angles. Falls back to Whole Sign where the requested system fails (polar latitudes)."""
+def houses(jd: float, latitude: float, longitude: float, system: str,
+           zodiac: str = "tropical") -> tuple[dict, list[str]]:
+    """Cusps and angles in the same zodiac as body_positions. Falls back to Whole Sign where the
+    requested system fails (polar latitudes)."""
     flags = []
+    house_flags = 0
+    if zodiac == "sidereal":
+        swe.set_sid_mode(swe.SIDM_LAHIRI)
+        house_flags = swe.FLG_SIDEREAL  # houses_ex with this flag returns sidereal cusps and angles
     try:
-        cusps, ascmc = swe.houses(jd, latitude, longitude, HOUSE_CODES[system])
+        cusps, ascmc = swe.houses_ex(jd, latitude, longitude, HOUSE_CODES[system], house_flags)
     except swe.Error:
         if system == "whole_sign":
             raise
-        cusps, ascmc = swe.houses(jd, latitude, longitude, HOUSE_CODES["whole_sign"])
+        cusps, ascmc = swe.houses_ex(jd, latitude, longitude, HOUSE_CODES["whole_sign"], house_flags)
         system = "whole_sign"
         flags.append("polar_fallback_whole_sign")
     asc, mc = ascmc[0] % 360, ascmc[1] % 360
@@ -594,7 +656,7 @@ def houses(jd: float, latitude: float, longitude: float, system: str) -> tuple[d
     }, flags
 ```
 
-**Step 4: Run tests** → 6 passed (run once with `ephe/` present, once with it renamed away, to exercise both Chiron branches).
+**Step 4: Run tests** → 11 passed (run once with `ephe/` present, once with it renamed away, to exercise both Chiron branches).
 
 **Step 5: Commit**
 
@@ -663,6 +725,40 @@ def test_applying_is_null_without_speed():
 
 def test_synastry_orbs_are_natal_minus_two():
     assert asp.max_orb("Conjunction", "Mars", "Venus", reduction=2.0) == 6.0
+
+
+def test_applying_fast_pair_that_overshoots_within_an_hour():
+    # Moon-speed body 0.1 short of an exact trine: approaching, even though it passes exact within the hour.
+    assert asp.applying(body(0, 13.2), body(120.1, 0.0), 120) is True
+
+
+def test_separating_fast_pair_just_past_exact():
+    assert asp.applying(body(120.1, 13.2), body(0, 0.0), 120) is False
+
+
+def test_applying_conjunction_across_the_zero_wrap():
+    assert asp.applying(body(359, 1.0), body(1, 0.0), 0) is True
+
+
+def test_applying_retrograde_conjunction_across_the_zero_wrap():
+    assert asp.applying(body(1, -1.0), body(359, 0.0), 0) is True
+
+
+def test_applying_opposition_from_either_side():
+    assert asp.applying(body(179, 1.0), body(0, 0.0), 180) is True
+    # delta = -179 with the first body moving slower: rel < 0, still closing on 180.
+    assert asp.applying(body(0, 0.0), body(179, 1.0), 180) is True
+    # Moving away from the opposition.
+    assert asp.applying(body(179, 0.0), body(0, 1.0), 180) is False
+
+
+def test_applying_is_null_for_equal_speeds():
+    assert asp.applying(body(10, 1.0), body(130, 1.0), 120) is None
+
+
+def test_applying_is_null_when_speed_is_none():
+    assert asp.applying(body(10, None), body(130, 1.0), 120) is None
+    assert asp.applying(body(10, 1.0), body(130, None), 120) is None
 ```
 
 **Step 2: Run to verify it fails** → `ModuleNotFoundError: No module named 'aspects'`.
@@ -691,12 +787,18 @@ def separation(lon1: float, lon2: float) -> float:
 
 
 def applying(p1: dict, p2: dict, angle: float) -> bool | None:
-    if "speed" not in p1 or "speed" not in p2:
+    """True when the pair is closing on the exact aspect, False when moving away from it,
+    None when a speed is missing or the bodies move at the same rate.
+    Uses the signed separation and relative speed analytically, so a fast body that reaches
+    exact within the hour (the Moon, say) is still reported as applying."""
+    if p1.get("speed") is None or p2.get("speed") is None:
         return None
-    now = separation(p1["longitude"], p2["longitude"])
-    step = 1 / 24  # one hour ahead
-    later = separation(p1["longitude"] + p1["speed"] * step, p2["longitude"] + p2["speed"] * step)
-    return abs(later - angle) < abs(now - angle)
+    rel = p1["speed"] - p2["speed"]
+    if abs(rel) < 1e-9:
+        return None
+    delta = ((p1["longitude"] - p2["longitude"] + 180) % 360) - 180  # signed, in (-180, 180]
+    target = angle if delta >= 0 else -angle  # nearest exact aspect on delta's side (0 stays 0)
+    return (delta - target) * rel < 0
 
 
 def find_aspects(bodies: dict[str, dict], reduction: float = 0.0, pairs=None) -> list[dict]:
@@ -716,7 +818,7 @@ def find_aspects(bodies: dict[str, dict], reduction: float = 0.0, pairs=None) ->
     return found
 ```
 
-**Step 4: Run tests** → 7 passed.
+**Step 4: Run tests** → 14 passed.
 
 **Step 5: Commit**
 
@@ -855,7 +957,7 @@ def build_chart(name: str, date: dt.date, time: dt.time | None, timezone: str, l
 
     houses = angles = None
     if "time_unknown" not in flags:
-        houses, house_flags = eph.houses(jd, location["latitude"], location["longitude"], house_system)
+        houses, house_flags = eph.houses(jd, location["latitude"], location["longitude"], house_system, zodiac)
         flags += house_flags
         angles = houses.pop("angles")
 
@@ -1420,7 +1522,7 @@ def test_applying_from_transit_speed_only():
 
 **Step 2: Run to verify it fails.**
 
-**Step 3: Implement** `transits.py` with: `DEFAULT_BODIES`, `FAST_BODIES = ["Sun", "Mercury", "Venus", "Mars"]`, `natal_targets(chart)`, `sky_at(date, tz, names) -> {name: {longitude, speed}}`, `is_applying(...)` (compare separation now vs one hour later as in Task 6), `hits_for_day(date, chart, names) -> list[dict]` with keys date, transit, aspect, natal, orb, applying, retrograde, `scan(chart, start, end, names)` that yields rows across the range, and `write_csv(rows, path, chart)` with header `Date,Transit,Aspect,Natal,Orb (°),Applying,Retrograde`, preceded by one comment line `# noon in <timezone> (UTC<offset on the start date>)` so the offset is named in the header as the design asks. Chiron is omitted silently from the transiting set when its file is missing. Use the 1° orb for every aspect in the ASPECTS dict, quincunx included. CLI:
+**Step 3: Implement** `transits.py` with: `DEFAULT_BODIES`, `FAST_BODIES = ["Sun", "Mercury", "Venus", "Mars"]`, `natal_targets(chart)`, `sky_at(date, tz, names) -> {name: {longitude, speed}}`, `is_applying(lon_t, speed_t, lon_n, angle)` (the analytic signed form of `aspects.applying()` with the natal speed at 0: `delta = ((lon_t - lon_n + 180) % 360) - 180`, `target = angle if delta >= 0 else -angle`, applying is `(delta - target) * speed_t < 0`, `None` when `abs(speed_t) < 1e-9`; do not use a finite one-hour step, it was found wrong in review), `hits_for_day(date, chart, names) -> list[dict]` with keys date, utc_offset, transit, aspect, natal, orb, applying, retrograde, `scan(chart, start, end, names)` that yields rows across the range, and `write_csv(rows, path)` with header `Date,Time,UTC Offset,Transit,Aspect,Natal,Orb (°),Applying,Retrograde` and no comment lines (so `csv.DictReader` and `pandas.read_csv` parse it directly). Time is always `12:00`; UTC Offset is that day's noon offset in `meta.timezone` (`-04:00` form), computed per row so a range crossing a DST change is labelled correctly on every row. Chiron is omitted silently from the transiting set when its file is missing. Use the 1° orb for every aspect in the ASPECTS dict, quincunx included. CLI:
 
 ```
 python transits.py chart.json --start 2026-01-01 --end 2026-12-31 [--fast] [--moon] [--out transits.csv]
@@ -1513,7 +1615,7 @@ def test_grid_has_a_down_and_b_across():
 
 **Step 2: Run to verify it fails.**
 
-**Step 3: Implement** `compare(a, b) -> dict` returning `{"schema_version": 1, "a": a["meta"]["name"], "b": b["meta"]["name"], "flags": [...], "inter_aspects": [{"a": ..., "b": ..., "aspect", "angle", "orb", "max_orb", "applying": None}], "overlays": {"a_in_b_houses": {...}|None, "b_in_a_houses": {...}|None}}`, with flags `a_time_unknown`/`b_time_unknown` added when the respective chart carries `time_unknown`. Each inter-aspect carries `uncertain: true` when it involves the Moon of an untimed chart, false otherwise. `render_grid(result, a, b)` matches Task 8's format with header `| A \ B | ... |` and no applying suffix.
+**Step 3: Implement** `compare(a, b) -> dict` returning `{"schema_version": 1, "a": a["meta"]["name"], "b": b["meta"]["name"], "flags": [...], "inter_aspects": [{"a": ..., "b": ..., "aspect", "angle", "orb", "max_orb", "applying": None}], "overlays": {"a_in_b_houses": {...}|None, "b_in_a_houses": {...}|None}}`, with flags `a_time_unknown`/`b_time_unknown` added when the respective chart carries `time_unknown`. Each inter-aspect carries `uncertain: true` when it involves the Moon of an untimed chart, false otherwise. `render_grid(result, a, b)` matches Task 8's format with header `| A \ B | ... |` and no applying suffix; cells for `uncertain` aspects end in `?`.
 
 **Step 4: Run tests** → 5 passed.
 
