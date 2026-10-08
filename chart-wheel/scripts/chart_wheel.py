@@ -2,11 +2,13 @@
 """Render a chart.json (natal-chart contract, schema_version 1) as an 800x800 SVG wheel.
 
 Convention: Ascendant at 9 o'clock, zodiac running counter-clockwise. Standard library only.
+Separating aspects (applying false) are dashed; applying true and applying null are drawn solid.
 
     python chart_wheel.py chart.json [--out wheel.svg]
 """
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -26,12 +28,17 @@ R_LABEL = 240.0
 R_ASPECT = 210.0
 R_ANGLE_EXT = 390.0
 WHEEL_SCALE = 0.85     # shrink the rings about the centre so the captions at y=40 and y=770 clear the outer ring
-LABEL_STAGGER = 16.0   # labels of nudged neighbours alternate between R_LABEL and R_LABEL - LABEL_STAGGER
+LABEL_STAGGER = 16.0   # labels of close neighbours step inward through LABEL_LEVELS radii
+LABEL_LEVELS = 3
+LABEL_PAD = 6.0        # minimum clearance between neighbouring labels at the same radius
+DEGREE_FONT = 12       # about 10px after WHEEL_SCALE
 
-SIGN_GLYPHS = ["♈", "♉", "♊", "♋", "♌", "♍", "♎", "♏", "♐", "♑", "♒", "♓"]
+TEXT = "\ufe0e"        # text presentation selector: keeps viewers from substituting colour emoji
+SIGN_GLYPHS = [c + TEXT for c in "♈♉♊♋♌♍♎♏♐♑♒♓"]
 PLANET_GLYPHS = {
-    "Sun": "☉", "Moon": "☽", "Mercury": "☿", "Venus": "♀", "Mars": "♂", "Jupiter": "♃",
-    "Saturn": "♄", "Uranus": "♅", "Neptune": "♆", "Pluto": "♇", "Chiron": "⚷", "Node": "☊",
+    "Sun": "☉" + TEXT, "Moon": "☽" + TEXT, "Mercury": "☿" + TEXT, "Venus": "♀" + TEXT,
+    "Mars": "♂" + TEXT, "Jupiter": "♃" + TEXT, "Saturn": "♄" + TEXT, "Uranus": "♅" + TEXT,
+    "Neptune": "♆" + TEXT, "Pluto": "♇" + TEXT, "Chiron": "⚷", "Node": "☊",
 }
 ASPECT_COLOURS = {
     "Opposition": "#c0392b", "Square": "#c0392b",
@@ -73,19 +80,28 @@ def _text(x: float, y: float, s: str, size: float, cls: str | None = None, **att
     extra = " ".join(f'{k.replace("_", "-")}="{v}"' for k, v in attrs.items())
     c = f' class="{cls}"' if cls else ""
     return (f'<text x="{_fmt(x)}" y="{_fmt(y)}"{c} font-size="{size}" text-anchor="middle" '
-            f'dominant-baseline="central" {extra}>{s}</text>')
+            f'dy="0.35em" {extra}>{s}</text>')
 
 
 def degree_label(body: dict) -> str:
-    sd = body["longitude"] % 30.0
-    deg = int(sd)
-    minutes = int(round((sd - deg) * 60))
-    if minutes == 60:
-        deg, minutes = deg + 1, 0
+    total = round(body["sign_degree"] * 60) % 1800   # nearest arc-minute, 29°59.5' rolls over to 0°00'
+    deg, minutes = divmod(total, 60)
     label = f"{deg}°{minutes:02d}'"
     if body.get("retrograde"):
         label += " ℞"
     return label
+
+
+def _label_width(label: str) -> float:
+    """Rough advance width of a degree label in untransformed units (DejaVu Sans metrics)."""
+    em = {"°": 0.5, "'": 0.28, " ": 0.32, "℞": 0.75}
+    return DEGREE_FONT * sum(em.get(ch, 0.64) for ch in label)
+
+
+def _labels_clash(lon_a: float, lon_b: float, label_a: str, label_b: str) -> bool:
+    """Would two labels at R_LABEL touch? Compares the chord between their anchors to their widths."""
+    chord = 2.0 * R_LABEL * math.sin(math.radians(abs(lon_b - lon_a) % 360.0) / 2.0)
+    return chord < (_label_width(label_a) + _label_width(label_b)) / 2.0 + LABEL_PAD
 
 
 def svg_header() -> str:
@@ -133,7 +149,7 @@ def house_ring(chart: dict, asc: float) -> str:
             x, y = _pt(asc, lon, R_ANGLE_EXT + 6)
             anchor = "end" if x < CX - 1 else ("start" if x > CX + 1 else "middle")
             out.append(f'<text x="{_fmt(x)}" y="{_fmt(y)}" class="angle" font-size="11" '
-                       f'font-weight="bold" text-anchor="{anchor}" dominant-baseline="central" fill="#111">{label}</text>')
+                       f'font-weight="bold" text-anchor="{anchor}" dy="0.35em" fill="#111">{label}</text>')
     out.append("</g>")
     return "\n".join(out) + "\n"
 
@@ -142,16 +158,17 @@ def planet_ring(chart: dict, asc: float) -> str:
     names = [n for n in chart["bodies"] if n in PLANET_GLYPHS]
     true_lons = [chart["bodies"][n]["longitude"] for n in names]
     shown = g.spread(true_lons, MIN_GAP)
-    # stagger the degree labels of bodies that were nudged into a cluster, so the labels do not touch
+    labels = [degree_label(chart["bodies"][n]) for n in names]
+    # stagger the degree labels of close neighbours through three radii, so the labels do not touch
     label_r = {}
-    prev, flip = None, False
+    prev, level = None, 0
     for i in sorted(range(len(names)), key=lambda k: shown[k]):
-        flip = (not flip) if prev is not None and shown[i] - shown[prev] < MIN_GAP + 3.0 else False
-        label_r[i] = R_LABEL - LABEL_STAGGER if flip else R_LABEL
+        clash = prev is not None and _labels_clash(shown[prev], shown[i], labels[prev], labels[i])
+        level = (level + 1) % LABEL_LEVELS if clash else 0
+        label_r[i] = R_LABEL - LABEL_STAGGER * level
         prev = i
     out = ['<g id="planets">']
     for i, (name, lon, disp) in enumerate(zip(names, true_lons, shown)):
-        body = chart["bodies"][name]
         out.append(_line(asc, lon, R_HOUSE_IN - 6, R_HOUSE_IN + 6, stroke="#111", stroke_width="1.5"))
         if abs(disp - lon) > 0.05:
             # lead from the true position in to the nudged glyph
@@ -160,9 +177,9 @@ def planet_ring(chart: dict, asc: float) -> str:
             out.append(f'<line x1="{_fmt(x1)}" y1="{_fmt(y1)}" x2="{_fmt(x2)}" y2="{_fmt(y2)}" '
                        f'stroke="#999" stroke-width="0.75"/>')
         gx, gy = _pt(asc, disp, R_GLYPH)
-        out.append(_text(gx, gy, PLANET_GLYPHS[name], 22, "planet", fill="#111"))
+        out.append(_text(gx, gy, PLANET_GLYPHS[name], 22, "planet", fill="#111", data_body=name))
         lx, ly = _pt(asc, disp, label_r[i])
-        out.append(_text(lx, ly, escape(degree_label(body)), 10, "degree", fill="#333"))
+        out.append(_text(lx, ly, escape(labels[i]), DEGREE_FONT, "degree", fill="#333", data_body=name))
     out.append("</g>")
     return "\n".join(out) + "\n"
 
@@ -189,7 +206,7 @@ def aspect_lines(chart: dict, asc: float) -> str:
 def captions(chart: dict) -> str:
     meta = chart["meta"]
     top = f'{meta.get("name", "")}  ·  {meta.get("datetime_local", "").replace("T", " ")} ({meta.get("timezone", "")})'
-    parts = [meta.get("location", {}).get("name", "")]
+    parts = [(meta.get("location") or {}).get("name", "")]
     if meta.get("time_unknown"):
         parts.append("Birth time unknown: houses not shown, Moon approximate")
     elif meta.get("house_system"):
@@ -229,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         chart = json.loads(Path(args.chart).read_text(encoding="utf-8"))
         svg = render(chart)
-    except (OSError, ValueError, KeyError) as e:
+    except (OSError, ValueError, KeyError, AttributeError, TypeError) as e:
         print(f"chart_wheel: {e}", file=sys.stderr)
         return 1
     Path(args.out).write_text(svg, encoding="utf-8")
