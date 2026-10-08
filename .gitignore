@@ -4,3 +4,10 @@ __pycache__/
 # generated output, but keep committed samples
 aspects_*.csv
 !**/examples/aspects_*.csv
+# Swiss Ephemeris data files, fetched by natal-chart/scripts/fetch_ephemeris.py
+ephe/
+*.se1
+# raw GeoNames dump, reduced to natal-chart/data/cities.csv by build_cities.py
+cities15000.zip
+cities15000.txt
+.pytest_cache/
