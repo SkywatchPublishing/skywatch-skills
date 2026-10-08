@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+# generated output, but keep committed samples
+aspects_*.csv
+!**/examples/aspects_*.csv
