@@ -133,3 +133,11 @@ Composite and Davison charts are deferred to a later batch.
 Composite and Davison charts, progressions, solar and lunar returns, the
 sky-calendar set (lunar phases, void-of-course Moon, ingresses, stations,
 eclipses), Sabian and fixed-star lookups, and interpretation scaffolds.
+
+## Implementation notes
+
+Decisions made while building the skills that differ from or sharpen the plan above:
+
+- The UTC offset in the transits CSV is a per-row `UTC Offset` column rather than a header line, so the file stays parseable as plain CSV and a range that crosses a DST change is labelled correctly on every row.
+- City lookup accepts the full `City, Region, Country` label form (as printed in the ambiguity table, e.g. `Paris, 11, FR`), not only `City` or `City, Country`.
+- The golden test set is currently one chart. Its reference positions are astro.com values taken from a public test suite, because astro.com itself was unreachable from the build environment. Adding a pre-1970 DST birth, a southern-hemisphere birth and a sidereal reference remains open.
