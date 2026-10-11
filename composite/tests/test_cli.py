@@ -104,3 +104,51 @@ def test_ambiguous_reference_city_exits_2(tmp_path):
     proc = run("--a", str(EXAMPLE), "--b", str(PARTNER), "--city", "Paris", cwd=tmp_path)
     assert proc.returncode == 2
     assert "geonameid" in proc.stdout
+
+
+def test_davison_grid_in_subdir_leaves_no_aspects_file(tmp_path):
+    (tmp_path / "sub").mkdir()
+    proc = run("--a", str(EXAMPLE), "--b", str(PARTNER), "--method", "davison",
+               "--grid", "sub/g.md", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert (tmp_path / "sub" / "g.md").exists()
+    assert not list(tmp_path.rglob("*_aspects.md"))
+
+
+def test_davison_default_run_leaves_unrelated_aspects_file_alone(tmp_path):
+    stray = tmp_path / "davison_aspects.md"
+    stray.write_text("unrelated\n")
+    proc = run("--a", str(EXAMPLE), "--b", str(PARTNER), "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert stray.read_text() == "unrelated\n"
+    assert (tmp_path / "davison.md").read_text().startswith("|")
+
+
+def test_untimed_a_with_city_reference_exits_0(tmp_path):
+    proc = run("--a-birth", "--name X --date 1990-06-15 --geonameid 5128581", "--b", str(PARTNER),
+               "--city", "Paris, FR", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    chart = json.loads((tmp_path / "composite.json").read_text())
+    assert chart["houses"] is None
+    assert "time_unknown" in chart["meta"]["flags"]
+    assert chart["meta"]["location"]["geonameid"] == 2988507
+
+
+def test_untimed_note_printed_once(tmp_path):
+    proc = run("--a-birth", "--name X --date 1990-06-15 --geonameid 5128581", "--b", str(PARTNER), cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.count("Note: time_unknown") == 1
+
+
+def test_out_with_empty_stem_exits_1(tmp_path):
+    proc = run("--a", str(EXAMPLE), "--b", str(PARTNER), "--out", ".json", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "--out" in proc.stderr
+    assert len(proc.stderr.strip().splitlines()) == 1
+
+
+def test_houses_ignored_note_for_untimed_composite(tmp_path):
+    proc = run("--a-birth", "--name X --date 1990-06-15 --geonameid 5128581", "--b", str(PARTNER),
+               "--houses", "koch", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert "Note: --houses ignored because the composite has no houses (an untimed side)" in proc.stdout

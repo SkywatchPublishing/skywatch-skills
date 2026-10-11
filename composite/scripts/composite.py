@@ -316,6 +316,17 @@ def find_natal_script() -> Path | None:
     return next((c for c in candidates if c.is_file()), None)
 
 
+PRINTED_NOTES: set[str] = set()
+
+
+def forward_notes(stdout: str) -> None:
+    """Print natal-chart's ``Note:`` lines, remembering them so main does not repeat the flag."""
+    for line in stdout.splitlines():
+        if line.startswith("Note:"):
+            PRINTED_NOTES.add(line[len("Note:"):].strip())
+            print(line)
+
+
 class DelegationFailed(Exception):
     def __init__(self, code: int, stdout: str, stderr: str):
         super().__init__(f"natal_chart.py exited {code}")
@@ -339,8 +350,9 @@ def load_chart(path: Path) -> dict:
     return chart
 
 
-def cast_davison(natal_script: Path, a: dict, b: dict, out: Path) -> dict:
-    """Cast the Davison chart of two chart.json dicts through natal-chart, writing ``out``.
+def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | None = None) -> dict:
+    """Cast the Davison chart of two chart.json dicts through natal-chart, writing ``out`` and ``grid``
+    (default: ``out`` with a ``.md`` suffix).
 
     The timezone comes from timezonefinder at the great-circle midpoint; where there is none
     (mid-ocean) the chart is cast in UTC and flagged ``davison_timezone_utc``.
@@ -348,11 +360,12 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path) -> dict:
     If either source has an unknown time, ``--time`` is omitted and natal-chart applies its own
     untimed convention: the chart is cast at local noon at the midpoint place on the local date of
     the mean instant (not at the mean of the two noons, and not at the mean instant itself), with
-    ``time_unknown`` set and no angles or houses. The aspect grid is written beside ``out``.
+    ``time_unknown`` set and no angles or houses. natal-chart writes the aspect grid to ``grid``.
 
     Raises ValueError when the charts disagree on zodiac or node, or when the birthplaces are
     antipodal (no unique midpoint).
     """
+    grid = grid or out.with_suffix(".md")
     ma, mb = a["meta"], b["meta"]
     for key in ("zodiac", "node"):
         if ma.get(key) != mb.get(key):
@@ -378,13 +391,11 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path) -> dict:
     cmd += ["--lat", f"{lat:.6f}", "--lon", f"{lon:.6f}", "--tz", tz,
             "--houses", ma.get("house_system") or "placidus",
             "--zodiac", ma.get("zodiac", "tropical"), "--node", ma.get("node", "true"),
-            "--out", str(out), "--grid", str(out.with_name(out.stem + "_aspects.md"))]
+            "--out", str(out), "--grid", str(grid)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         raise DelegationFailed(proc.returncode, proc.stdout, proc.stderr)
-    for line in proc.stdout.splitlines():
-        if line.startswith("Note:"):
-            print(line)
+    forward_notes(proc.stdout)
     sys.stderr.write(proc.stderr)
 
     chart = load_chart(out)
@@ -446,9 +457,7 @@ def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         raise DelegationFailed(proc.returncode, proc.stdout, proc.stderr)
-    for line in proc.stdout.splitlines():
-        if line.startswith("Note:"):
-            print(line)
+    forward_notes(proc.stdout)
     sys.stderr.write(proc.stderr)
     return load_chart(out)
 
@@ -456,9 +465,11 @@ def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
 def resolve_reference(args, a: dict, natal_script: Path | None, tmp: Path) -> dict:
     """The contract ``location`` for midpoint houses: A's place unless a place flag overrides it.
 
-    ``--lat/--lon`` is used directly. ``--city``/``--geonameid`` is resolved by casting A's birth
-    moment at that place through natal-chart once and reading ``meta.location``; an ambiguous
-    city therefore surfaces as natal-chart's exit 2 with its candidate table.
+    ``--lat/--lon`` is used directly. ``--city``/``--geonameid`` is resolved by casting a probe
+    chart at that place through natal-chart once and reading ``meta.location``; an ambiguous
+    city therefore surfaces as natal-chart's exit 2 with its candidate table. The probe uses a
+    fixed, untimed date (2000-01-01) since only the location is read; A's own date or time could
+    be one the reference place rejects.
     """
     if args.lat is not None or args.lon is not None:
         if args.lat is None or args.lon is None:
@@ -471,10 +482,7 @@ def resolve_reference(args, a: dict, natal_script: Path | None, tmp: Path) -> di
         return a["meta"]["location"]
     if natal_script is None:
         raise ValueError(BIRTH_MISSING)
-    local = a["meta"].get("datetime_local") or a["meta"].get("datetime_utc") or "2000-01-01T12:00:00"
-    cmd = [sys.executable, "-I", str(natal_script), "--name", "reference", "--date", local[:10]]
-    if not _time_unknown(a):
-        cmd += ["--time", local[11:19]]
+    cmd = [sys.executable, "-I", str(natal_script), "--name", "probe", "--date", "2000-01-01"]
     cmd += ["--geonameid", str(args.geonameid)] if args.geonameid else ["--city", args.city]
     out = tmp / "reference.json"
     cmd += ["--out", str(out), "--grid", str(out.with_suffix(".md"))]
@@ -499,6 +507,9 @@ def main(argv=None) -> int:
                      "the reference place flags apply to --method midpoint only")
 
     out = args.out or Path("davison.json" if args.method == "davison" else "composite.json")
+    if out.name.startswith(".") and "." not in out.name[1:]:  # pathlib: ".json" has an empty stem
+        print(f"--out needs a file name, not just an extension ({out})", file=sys.stderr)
+        return 1
     grid_path = args.grid or out.with_suffix(".md")
     if grid_path.resolve() == out.resolve():
         print(f"--grid and --out are the same file ({out}); choose a different --grid", file=sys.stderr)
@@ -525,10 +536,7 @@ def main(argv=None) -> int:
             house_system = args.houses or a["meta"].get("house_system") or "placidus"
             if args.method == "davison":
                 a["meta"]["house_system"] = house_system
-                chart = cast_davison(natal_script, a, b, out)
-                natal_grid = out.with_name(out.stem + "_aspects.md")
-                if natal_grid.resolve() != grid_path.resolve():
-                    natal_grid.replace(grid_path)
+                chart = cast_davison(natal_script, a, b, out, grid_path)
             else:
                 reference = resolve_reference(args, a, natal_script, Path(tmp))
                 chart = midpoint_chart(a, b, reference, house_system)
@@ -548,7 +556,10 @@ def main(argv=None) -> int:
 
     print(f"Wrote {out} and {grid_path}")
     for flag in chart["meta"]["flags"]:
-        print(f"Note: {flag}")
+        if flag not in PRINTED_NOTES:
+            print(f"Note: {flag}")
+    if args.houses and not chart.get("houses"):
+        print("Note: --houses ignored because the composite has no houses (an untimed side)")
     return 0
 
 
