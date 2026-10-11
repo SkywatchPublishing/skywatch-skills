@@ -25,7 +25,7 @@ For each return found in the range:
 
 | File | Contents |
 |---|---|
-| `<body>_return_<YYYY-MM-DD>.json` | A full `chart.json` for the return moment (schema in `natal-chart/CONTRACT.md`): bodies, angles, cusps, aspects, cast with the natal chart's house system, zodiac and node setting. The date is the local date at the return place. When two returns fall on the same local date the later files get `_2`, `_3` appended (lunar returns and tight retrograde loops). |
+| `<body>_return_<YYYY-MM-DD>.json` | A full `chart.json` for the return moment (schema in `natal-chart/CONTRACT.md`): bodies, angles, cusps, aspects, cast with the natal chart's house system, zodiac and node setting. The date is the local date at the return place. The script never overwrites: if `<body>_return_<date>.json` already exists (an earlier run into the same folder, or a second crossing on the same local date in a tight retrograde loop) the new chart takes the next free name `_2`, `_3`, ... and a `Note:` line says so. |
 | `<body>_return_<YYYY-MM-DD>_aspects.md` | The Markdown aspect grid natal-chart writes beside every chart, for the return chart's own aspects. |
 
 Plus one `returns_summary.md` for the run: the natal body's longitude, the natal Ascendant and Moon, a table with one row per return (name, exact UTC moment, local time and timezone, place, ASC, MC, DSC, IC, return Moon sign), a line per return comparing the return Ascendant sign and Moon sign to the natal ones, and the flags that apply.
@@ -91,7 +91,7 @@ python scripts/returns.py chart.json --start 2027-01-01 --end 2027-12-31 --city 
 
 Pass at most one of `--city`, `--geonameid`, `--lat/--lon`; none means the natal place.
 
-Exit codes: `0` success (`Wrote N return chart(s) and <dir>/returns_summary.md`, then a `Note:` line per flag), `1` bad input (end before start, a mixed or half-given place, a chart that is not `schema_version` 1, a body missing from the chart, natal-chart not installed, unknown city), `2` ambiguous city. On `2` nothing is written and natal-chart's candidate table is printed on stdout: show it, ask the user which place they mean, and re-run with `--geonameid <id>`. Do not guess.
+Exit codes: `0` success (`Wrote N return chart(s), each with a _aspects.md aspect-grid sidecar, and <dir>/returns_summary.md`, then a `Note:` line per flag), `1` bad input (end before start, `--city` together with `--geonameid` or either with `--lat/--lon`, a half-given place, `--tz` without coordinates, a chart that is not `schema_version` 1, a body missing from the chart, `--precessed` on a sidereal chart, natal-chart not installed, unknown city), `2` ambiguous city. On `2` nothing is written and natal-chart's candidate table is printed on stdout: show it, ask the user which place they mean, and re-run with `--geonameid <id>`. Do not guess.
 
 **Examples:**
 ```bash
@@ -120,7 +120,7 @@ See "Presenting the return" below.
 |---|---|---|
 | `return_place_natal` | No place was given, so the return was cast at the natal location | The houses assume the person is at the birthplace; offer to re-run for where they will actually be |
 | `natal_time_unknown` | The natal chart has no birth time, so the target longitude is the noon position | For the Sun and slow bodies the return moment is off by at most hours, which barely moves the return angles; for a lunar return the natal Moon is uncertain by up to 7°, so the return moment is uncertain by half a day and the chart is not reliable. The summary omits the natal Ascendant comparison. |
-| `precession_corrected` | `--precessed` was used | Name it; the return moment is roughly 20 minutes per year of age later than the tropical return, so the angles differ |
+| `precession_corrected` | `--precessed` was used | Name it; the return moment is roughly 20 minutes per year of age later than the tropical return, so the angles differ. Only tropical charts take `--precessed`: on a sidereal chart the script exits 1 with `--precessed applies to tropical charts only; a sidereal chart's returns are already precession-free` |
 
 natal-chart's own flags (`chiron_unavailable`, `polar_fallback_whole_sign`) pass through and mean the same as there.
 
@@ -159,10 +159,11 @@ Do not read the return chart as a natal chart; it describes the period until the
 | Retrograde loops | Every crossing is a return, so a loop gives one chart per pass | `find_returns()` |
 | Target | The natal body's `longitude` from the chart; a sidereal chart is searched in sidereal longitude (Lahiri), which is a precession-corrected return by construction, so `--precessed` is for tropical charts | `longitude()`, `main()` |
 | Precession | `--precessed` adds the Lahiri ayanamsa accumulated between birth and the sample to the target. The ayanamsa's zero point cancels in the difference, so any ayanamsa gives the same drift | `precession_shift()` |
-| Casting | One `natal_chart.py` run per return, with `--date`, `--time` to the second, the place, and the natal `--houses`, `--zodiac`, `--node`; `chart_type`, `derived_from`, `return_utc` and the flags are rewritten afterwards | `cast_return()` |
+| Casting | One `natal_chart.py` run per return, with `--date`, `--time` to the second, the place, and the natal `--houses`, `--zodiac`, `--node`; `chart_type`, `derived_from`, `return_utc` and the flags are rewritten afterwards. A return that falls in the repeated hour of a DST fall-back is passed with natal-chart's `--fold 1`, and the cast is checked against the return moment to within 2 seconds | `cast_return()` |
 | Timezone | `--tz` as given; `timezonefinder` for coordinates; for a city, one probe run of natal-chart on the natal date, which also surfaces ambiguity before any search | `resolve_timezone()`, `probe_place()` |
 | Ephemeris | `ephe/` here, else the sibling `natal-chart/ephe/`; the Moshier fallback has no Chiron | top of `scripts/returns.py` |
 
+- `chart.json` stores longitudes to 4 decimals (0.0001°). The target is read from that rounded value, so the return moment is exact for the rounded degree, not for the unrounded natal position: the Sun moves 0.0001° in about 4 seconds and the Moon in about 1 second, which bounds the precision of the moments the search reports. The bisection itself resolves far below that.
 - Mercury and Venus returns are deferred. Their retrograde loops can put zero or three returns in a year depending on where the loop falls against the natal degree, so "your Venus return this year" needs different wording and documentation than the other bodies; the script refuses them at the argument level.
 - Lunar returns recur about every 27.3 days (the sidereal month), so a year gives 13 or 14 charts; narrow the range to the months the user cares about.
 - The script imports nothing from the other skill folders; it copies the helpers it needs from `synastry` so the folder is self-contained, and finds `natal_chart.py` beside itself, in `~/.claude/skills/`, or in `./.claude/skills/`.
@@ -184,4 +185,6 @@ Do not read the return chart as a natal chart; it describes the period until the
 | `expected schema_version 1` | The file is not a `chart.json` from the natal-chart skill; cast one with that skill |
 | Return moment differs from another program by minutes | Check whether the other program precession-corrects (`--precessed`), and whether the natal chart is sidereal: a sidereal chart's return is searched in sidereal longitude, which is the precession-corrected moment, later than the tropical return by about 20 minutes per year of age |
 | Return Ascendant disagrees with another program by a sign | Different return place or timezone; `meta.location` and `meta.timezone` in the return file show what was used |
+| `Note: <name>.json already exists; writing <name>_2.json instead` | The output folder already holds a chart of that name from an earlier run; nothing was overwritten. Use a fresh `--out-dir` per run if that is confusing |
+| `--precessed applies to tropical charts only` | The chart is sidereal; drop `--precessed`, its returns are already searched in sidereal longitude |
 | `No such file` for the script | Paths are relative to the skill folder; run from there or use the full path |

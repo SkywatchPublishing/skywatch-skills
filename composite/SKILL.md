@@ -82,15 +82,15 @@ python scripts/composite.py \
 | `--method` | `midpoint` | `midpoint` or `davison` |
 | `--city`, `--geonameid`, `--lat --lon` | A's place | Reference place for midpoint houses; at most one of the three. `--tz` is accepted for symmetry with `natal-chart` but a midpoint composite has no clock time |
 | `--houses` | chart A's | `placidus`, `koch`, `equal`, `porphyry`, `whole_sign` |
-| `--out` | `composite.json` or `davison.json` | Output chart path |
-| `--grid` | `<out stem>.md` | Markdown grid path; must differ from `--out` |
+| `--out` | `composite.json` or `davison.json` | Output chart path; needs a file name, not just an extension (`--out .json` is refused) |
+| `--grid` | `<out stem>.md` | Markdown grid path; must differ from `--out`. For a Davison chart natal-chart writes the grid straight to this path |
 
 Exit codes:
 
 | Code | Meaning |
 |---|---|
-| `0` | Success; `Wrote <out> and <grid>` followed by one `Note:` line per flag in `meta.flags`. |
-| `1` | Bad arguments (both `--a` and `--a-birth`, or neither; place flags with `--method davison`; `--lat` without `--lon`; a mix of place flags; `--grid` naming the same file as `--out`), an unreadable or malformed chart file (invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`), the two charts disagreeing on zodiac or node, or `natal-chart` not found when it is needed. One line on stderr. |
+| `0` | Success; `Wrote <out> and <grid>` followed by one `Note:` line per flag in `meta.flags`. A flag natal-chart already announced while casting (a Davison or a birth string) is not repeated. If `--houses` was given but the composite has no houses (an untimed side) a `Note: --houses ignored ...` line follows. |
+| `1` | Bad arguments (both `--a` and `--a-birth`, or neither; place flags with `--method davison`; `--lat` without `--lon`; a mix of place flags; `--out` that is only an extension; `--grid` naming the same file as `--out`), an unreadable or malformed chart file (invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`), the two charts disagreeing on zodiac or node, antipodal birthplaces on a Davison chart (`birthplaces are antipodal; no unique midpoint`), or `natal-chart` not found when it is needed. One line on stderr. |
 | `2` | A `--city` (in a birth string or as the reference place) matched several places. The natal-chart candidate table is printed on stdout; nothing is written. |
 
 On exit `2`, show the candidate table to the user and ask which place they mean, exactly as the `natal-chart` skill does. Then re-run with `--geonameid <id>` in place of `--city` (inside the birth string, or as the reference flag). If the user already said which one ("Paris, Texas"), write `--city 'Paris, TX'`.
@@ -151,10 +151,10 @@ A midpoint composite is not a moment in time: do not describe it as "the sky on"
 | Composite houses | `swe.houses_armc(armc, lat, eps, code)` with `armc = atan2(sin(MC)·cos(eps), cos(MC))` and the obliquity at the mean Julian day; whole-sign fallback flagged `polar_fallback_whole_sign` at polar latitudes | `armc_from_mc()`, `houses_from_mc()` |
 | Composite aspects | Bodies plus Ascendant and MC (the Ascendant-MC pair excluded), natal orb table, `applying` always `null` | `find_aspects()` |
 | Davison moment | Mean of the two `datetime_utc` instants, to the second | `davison_inputs()` |
-| Davison place | Great-circle midpoint of the two `meta.location` coordinates | `great_circle_midpoint()` |
+| Davison place | Great-circle midpoint of the two `meta.location` coordinates; exactly antipodal birthplaces have no unique midpoint and exit 1 | `great_circle_midpoint()` |
 | Davison timezone | `timezonefinder` at the midpoint; `UTC` with flag `davison_timezone_utc` when none | `cast_davison()` |
-| Davison cast | One `natal_chart.py` run with `--date`, `--time` to the second, `--lat/--lon/--tz`, A's house system (or `--houses`), zodiac and node; `chart_type`, `derived_from` and `source.method` rewritten afterwards | `cast_davison()` |
-| Reference place | `--lat/--lon` used directly; `--city`/`--geonameid` resolved by one probe run of `natal-chart` at A's birth moment, which also surfaces an ambiguous city as exit 2 | `resolve_reference()` |
+| Davison cast | One `natal_chart.py` run with `--date`, `--time` to the second, `--lat/--lon/--tz`, A's house system (or `--houses`), zodiac and node, `--out` and `--grid` as given, so the aspect grid is natal-chart's own; `chart_type`, `derived_from` and `source.method` rewritten afterwards | `cast_davison()` |
+| Reference place | `--lat/--lon` used directly; `--city`/`--geonameid` resolved by one untimed probe run of `natal-chart` on a fixed date (2000-01-01), since only the location is read; the probe also surfaces an ambiguous city as exit 2 | `resolve_reference()` |
 | Ephemeris | `ephe/` here, else the sibling `natal-chart/ephe/` (only the obliquity is computed here) | top of `scripts/composite.py` |
 | Dependencies | `pyswisseph`; `timezonefinder` and `natal-chart` for Davison; `natal-chart` for raw birth data and city references | |
 
@@ -176,6 +176,9 @@ A midpoint composite is not a moment in time: do not describe it as "the sky on"
 | `give --a or --a-birth, not both` | Each person is given exactly one way. |
 | `--lat and --lon must be given together` / `pass exactly one of --city, --geonameid, or --lat/--lon` | One reference place, given one way. |
 | `--grid and --out are the same file` | Pick a different `--grid` path or let it default to `<out stem>.md`. |
+| `--out needs a file name, not just an extension` | `--out .json` has an empty stem; give a name such as `--out ada_bob.json`. |
+| `birthplaces are antipodal; no unique midpoint` | The two birthplaces are exactly opposite each other on the globe, so every great circle between them is equally short and no Davison place exists; use the midpoint method. |
+| `Note: --houses ignored because the composite has no houses` | One side is untimed, so there are no houses for `--houses` to shape. Expected. |
 | `expected schema_version 1`, `not valid JSON`, `missing meta.name`, `missing bodies` | The file is not a `natal-chart` output or is truncated; re-cast it. |
 | `ModuleNotFoundError: swisseph` | `pip install pyswisseph` in the environment the script runs in. |
 | `ModuleNotFoundError: timezonefinder` on a Davison run | `pip install timezonefinder`. |

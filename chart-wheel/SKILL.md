@@ -33,7 +33,7 @@ Line style carries one more fact: a **solid** aspect line is applying, a **dashe
 
 When bodies crowd together (a stellium, or a tight conjunction) the glyphs are nudged apart so they do not overlap, and each nudged glyph gets a thin grey **lead line** from its true-position tick in to the glyph. The ticks and the aspect lines always use the true longitude; only the glyph and its label move. Degree labels of close neighbours are staggered through three radii so they do not touch.
 
-Two captions sit outside the wheel: the name, local date-time and timezone at the top; the place, house system, zodiac (when sidereal) and any chart flags at the bottom.
+Two captions sit outside the wheel: the name, local date-time and timezone at the top; the place, house system, zodiac (when sidereal) and any chart flags at the bottom. For a derived chart (`meta.chart_type` other than `natal`) the top caption names the type and the source charts instead of the name, e.g. "Solar return for Example" or "Composite for A and B", and a midpoint composite, having no moment, shows no date-time or timezone.
 
 **Unknown birth time.** When `meta.time_unknown` is true the chart has no angles or houses, so the wheel rotates to put 0° Aries at 9 o'clock, draws no house ring, no angle lines and no aspects to the angles, and the bottom caption reads "Birth time unknown: houses not shown, Moon approximate". Everything else is drawn as usual.
 
@@ -103,7 +103,7 @@ See "Presenting the wheel" below.
 - Everything the wheel shows is read from `chart.json`: bodies and their longitudes, `angles`, `houses.cusps`, the `aspects` list with its `applying` flag, and `meta` for the captions. Nothing is recomputed, so the wheel always agrees with the aspect grid.
 - The geometry (angle-to-point mapping and the glyph spreading) lives in `scripts/wheel_geometry.py`, imported by sibling path; keep the two files together when copying the skill.
 - Colours, radii, glyphs and the font stack are constants at the top of `scripts/chart_wheel.py`.
-- Because the script only depends on the contract, charts written by future skills (solar returns, composites) draw without changes.
+- Because the script only depends on the contract, charts written by the `returns` and `composite` skills draw without changes; only the caption differs.
 
 ---
 

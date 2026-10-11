@@ -55,6 +55,8 @@ Aspects: conjunction 0°, sextile 60°, square 90°, trine 120°, quincunx 150°
 
 This skill does not take birth data. If the user has no `chart.json` yet, cast one with the `natal-chart` skill first and note where it was written. Unknown birth time is fine; the angles are simply left out.
 
+Derived charts work too: a return chart from the `returns` skill and a Davison chart from the `composite` skill are real moments with a timezone, so they scan like any natal chart. A midpoint composite has no moment (`meta.timezone` is null) and is refused with exit 1: `transits: this chart has no timezone (chart_type composite); transits need a real moment, so cast a Davison chart or use the natal chart instead`. Offer the Davison chart when the user wants transits to a relationship chart.
+
 ### Step 2 — Install the dependency
 
 Requires Python 3.11 or newer.
@@ -154,6 +156,7 @@ Do not infer exact clock times from this output. For a specific Moon transit the
 | `ModuleNotFoundError: swisseph` | Run `pip install pyswisseph` (it compiles from source; on Debian upgrade `setuptools` inside a venv first) |
 | `Chiron skipped: seas_18.se1 not found` | Run `python natal-chart/scripts/fetch_ephemeris.py` (or copy the files into `ephe/` here); if the network is blocked, tell the user Chiron is omitted |
 | `unsupported schema_version` | The file is not a `chart.json` from the natal-chart skill; cast one with that skill |
+| `transits: this chart has no timezone (chart_type composite)` | A midpoint composite has no moment to scan from; run the `composite` skill with `--method davison` and scan that, or scan a natal chart |
 | `--end must not be before --start` | Swap the dates |
 | No rows at all | Normal for a short range with the slow bodies only; widen the range or add `--fast` |
 | Thousands of rows | `--fast` or `--moon` over a long range; narrow the range or drop the flag |

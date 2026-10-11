@@ -1,7 +1,8 @@
 # chart.json contract (schema_version 1)
 
 `natal_chart.py` writes `chart.json`. The consumer skills (chart-wheel, transits-to-natal,
-synastry) read it and nothing else. Check `schema_version == 1` before reading anything.
+synastry, returns, composite) read it and nothing else; returns and composite also write it, as
+derived charts whose `meta.chart_type` says what they are. Check `schema_version == 1` before reading anything.
 All longitudes are ecliptic degrees in `[0, 360)`, rounded to 4 decimals. Keys are always
 present; some carry `null` as described below. `chart_type` and `derived_from` were added later,
 so files written before them may omit both: consumers read them with `.get`, treating a missing
