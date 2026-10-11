@@ -67,3 +67,9 @@ def test_build_chart_sidereal_houses_are_sidereal():
     assert shift == pytest.approx(23.8, abs=0.2)
     cusp_shift = (tropical["houses"]["cusps"][0] - sidereal["houses"]["cusps"][0]) % 360
     assert cusp_shift == pytest.approx(shift, abs=0.01)
+
+
+def test_meta_carries_chart_type_and_derivation():
+    c = ch.build_chart("Test", dt.date(1990, 6, 15), dt.time(12, 0), "America/New_York", NY, "placidus")
+    assert c["meta"]["chart_type"] == "natal"
+    assert c["meta"]["derived_from"] == []

@@ -23,6 +23,8 @@ Consumers must test truthiness (`if chart["angles"]:`), not key presence.
 | key | type | meaning |
 |---|---|---|
 | `name` | string | Chart owner's name as given on the command line. |
+| `chart_type` | string | `natal` from natal-chart. Derived charts rewrite it: `solar_return`, `lunar_return`, `mars_return`, `jupiter_return`, `saturn_return`, `uranus_return`, `chiron_return`, `composite`, `davison`. |
+| `derived_from` | array of string | Names of the source charts a derived chart was built from; `[]` for natal. |
 | `datetime_local` | string | ISO 8601 local wall-clock time, no offset, e.g. `1990-06-15T12:00:00`. Noon when the time is unknown. |
 | `timezone` | string | IANA zone used, e.g. `America/New_York`. |
 | `datetime_utc` | string | ISO 8601 UTC with trailing `Z`. |

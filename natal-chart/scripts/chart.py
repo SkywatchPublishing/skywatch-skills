@@ -89,6 +89,8 @@ def build_chart(name: str, date: dt.date, time: dt.time | None, timezone: str, l
         "schema_version": 1,
         "meta": {
             "name": name,
+            "chart_type": "natal",
+            "derived_from": [],
             "datetime_local": local.replace(tzinfo=None).isoformat(),
             "timezone": timezone,
             "datetime_utc": local.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
