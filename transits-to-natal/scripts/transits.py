@@ -170,6 +170,13 @@ def main(argv=None) -> int:
     if chart.get("schema_version") != 1:
         print(f"{a.chart}: unsupported schema_version {chart.get('schema_version')!r}", file=sys.stderr)
         return 1
+    meta = chart.get("meta") or {}
+    if not meta.get("timezone"):
+        # A midpoint composite carries null timestamps (see natal-chart/CONTRACT.md); there is no sky to scan.
+        print(f"transits: this chart has no timezone (chart_type {meta.get('chart_type', 'natal')}); "
+              "transits need a real moment, so cast a Davison chart or use the natal chart instead",
+              file=sys.stderr)
+        return 1
     names = list(DEFAULT_BODIES)
     if a.fast:
         names = FAST_BODIES + names

@@ -203,6 +203,13 @@ def aspect_lines(chart: dict, asc: float) -> str:
     return "\n".join(out) + "\n"
 
 
+def _join_names(names: list[str]) -> str:
+    """'A', 'A and B', 'A, B and C'."""
+    if len(names) <= 1:
+        return "".join(names)
+    return f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 def captions(chart: dict) -> str:
     meta = chart["meta"]
     title = str(meta.get("name", ""))
@@ -210,8 +217,12 @@ def captions(chart: dict) -> str:
     if chart_type not in (None, "natal"):
         humanised = str(chart_type).replace("_", " ").capitalize()
         derived_from = [str(d) for d in (meta.get("derived_from") or [])]
-        title = f"{humanised} for {', '.join(derived_from)}" if derived_from else humanised
-    top = f'{title}  ·  {str(meta.get("datetime_local") or "").replace("T", " ")} ({meta.get("timezone") or ""})'
+        title = f"{humanised} for {_join_names(derived_from)}" if derived_from else humanised
+    # A midpoint composite has no real moment: datetime_local and timezone are null and the segment is dropped.
+    moment = str(meta.get("datetime_local") or "").replace("T", " ")
+    if meta.get("timezone"):
+        moment = f'{moment} ({meta["timezone"]})'.strip()
+    top = "  ·  ".join(p for p in (title, moment) if p)
     parts = [(meta.get("location") or {}).get("name", "")]
     if meta.get("time_unknown"):
         parts.append("Birth time unknown: houses not shown, Moon approximate")

@@ -113,3 +113,14 @@ def test_main_rejects_end_before_start(tmp_path, capsys):
 def test_aspect_table_and_orb_are_the_documented_constants():
     assert tr.ASPECTS == {"Conjunction": 0, "Sextile": 60, "Square": 90, "Trine": 120, "Quincunx": 150, "Opposition": 180}
     assert tr.ORB == 1.0
+
+
+def test_main_refuses_chart_without_timezone(tmp_path, capsys):
+    import json
+    chart = tmp_path / "chart.json"
+    chart.write_text(json.dumps({"schema_version": 1, "meta": {"chart_type": "composite", "timezone": None},
+                                 "bodies": {}}), encoding="utf-8")
+    assert tr.main([str(chart), "--start", "2026-04-15", "--end", "2026-04-16"]) == 1
+    err = capsys.readouterr().err
+    assert "no timezone (chart_type composite)" in err
+    assert "Davison" in err
