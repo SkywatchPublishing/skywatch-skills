@@ -109,9 +109,18 @@ def find_aspects(bodies: dict[str, dict], reduction: float = 0.0, pairs=None) ->
 # --- midpoint geometry ---------------------------------------------------------------------
 
 def midpoint(a: float, b: float) -> float:
-    """Midpoint on the shorter arc, in [0, 360)."""
-    d = ((b - a + 180.0) % 360.0) - 180.0
-    return (a + d / 2.0) % 360.0
+    """Midpoint on the shorter arc, in [0, 360); symmetric in its arguments.
+
+    Computed from the sorted pair so swapping A and B gives the identical float. An exactly
+    antipodal pair has no shorter arc; the tie goes to ``min(a, b) + 90`` in either order.
+    """
+    lo, hi = sorted((a % 360.0, b % 360.0))
+    diff = hi - lo
+    if diff == 180.0:
+        return (lo + 90.0) % 360.0
+    if diff < 180.0:
+        return lo + diff / 2.0
+    return (hi + (360.0 - diff) / 2.0) % 360.0
 
 
 def obliquity(jd: float) -> float:
@@ -144,6 +153,7 @@ def houses_from_mc(mc: float, latitude: float, eps: float, system: str) -> dict:
 # --- midpoint composite --------------------------------------------------------------------
 
 def _time_unknown(chart: dict) -> bool:
+    # Unlike synastry's copy, missing angles also count as untimed so the MC lookup cannot KeyError.
     meta = chart.get("meta") or {}
     return (bool(meta.get("time_unknown")) or "time_unknown" in (meta.get("flags") or [])
             or not chart.get("angles"))

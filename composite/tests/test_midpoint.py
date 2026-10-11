@@ -12,7 +12,10 @@ PARTNER = Path(__file__).resolve().parents[2] / "synastry" / "examples" / "chart
 def test_short_arc_midpoint():
     assert cp.midpoint(350.0, 10.0) == pytest.approx(0.0)
     assert cp.midpoint(10.0, 350.0) == pytest.approx(0.0)
-    assert cp.midpoint(0.0, 180.0) in (pytest.approx(90.0), pytest.approx(270.0))
+    # An exactly antipodal pair has no shorter arc; the tie goes to min + 90 whichever order.
+    assert cp.midpoint(0.0, 180.0) == pytest.approx(90.0)
+    assert cp.midpoint(180.0, 0.0) == pytest.approx(90.0)
+    assert cp.midpoint(270.0, 90.0) == pytest.approx(180.0)
     assert cp.midpoint(100.0, 140.0) == pytest.approx(120.0)
 
 
@@ -42,3 +45,56 @@ def test_untimed_side_drops_houses():
     c = cp.midpoint_chart(a, b, reference=a["meta"]["location"], house_system="placidus")
     assert c["angles"] is None and c["houses"] is None
     assert {"time_unknown", "moon_uncertain"} <= set(c["meta"]["flags"])
+
+
+def test_pair_composite_houses_and_symmetry():
+    a = json.loads(EXAMPLE.read_text()); b = json.loads(PARTNER.read_text())
+    c = cp.midpoint_chart(a, b, reference=a["meta"]["location"], house_system="placidus")
+    cusps = c["houses"]["cusps"]
+    for body in c["bodies"].values():
+        assert body["house"] == cp.house_of(body["longitude"], cusps)
+    asc_after_mc = (c["angles"]["ascendant"] - c["angles"]["mc"]) % 360
+    assert 0 < asc_after_mc < 180
+    d = cp.midpoint_chart(b, a, reference=a["meta"]["location"], house_system="placidus")
+    for name in c["bodies"]:
+        assert d["bodies"][name]["longitude"] == pytest.approx(c["bodies"][name]["longitude"], abs=1e-6)
+    assert d["houses"]["cusps"] == pytest.approx(cusps, abs=1e-6)
+
+
+def _pair():
+    return json.loads(EXAMPLE.read_text()), json.loads(PARTNER.read_text())
+
+
+def _zodiac_mismatch():
+    a, b = _pair(); b["meta"]["zodiac"] = "sidereal"; return a, b
+
+
+def _node_mismatch():
+    a, b = _pair(); b["meta"]["node"] = "mean"; return a, b
+
+
+def _untimed_b():
+    a, b = _pair(); b["meta"]["time_unknown"] = True; b["angles"] = None; b["houses"] = None; return a, b
+
+
+def _no_chiron_b():
+    a, b = _pair(); del b["bodies"]["Chiron"]; return a, b
+
+
+@pytest.mark.parametrize("make, expect", [
+    (_zodiac_mismatch, ValueError),
+    (_node_mismatch, ValueError),
+    (_untimed_b, "untimed"),
+    (_no_chiron_b, "chiron_unavailable"),
+])
+def test_mismatches_and_flags(make, expect):
+    a, b = make()
+    if expect is ValueError:
+        with pytest.raises(ValueError):
+            cp.midpoint_chart(a, b, reference=a["meta"]["location"], house_system="placidus")
+        return
+    c = cp.midpoint_chart(a, b, reference=a["meta"]["location"], house_system="placidus")
+    if expect == "untimed":
+        assert c["bodies"]["Moon"]["house"] is None and c["meta"]["moon_range"] is None
+    else:
+        assert "Chiron" not in c["bodies"] and "chiron_unavailable" in c["meta"]["flags"]
