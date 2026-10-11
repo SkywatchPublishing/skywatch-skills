@@ -16,14 +16,24 @@ copied from natal-chart/scripts, as synastry does; nothing is imported across sk
 
 Usage:
     python composite.py --a chartA.json --b chartB.json [--method midpoint|davison] [--out composite.json]
+    python composite.py --a-birth '--name Ada --date 1990-06-15 --time 14:30 --geonameid 2643743' \
+                        --b-birth '--name Bob --date 1988-02-02 --geonameid 5128581' --city "Paris, FR"
+
+``--a-birth``/``--b-birth`` are shell-style strings handed verbatim to the natal-chart script.
+``--city``/``--geonameid``/``--lat --lon`` set the reference place for midpoint houses (default:
+chart A's place); a Davison chart's place is computed, so they are rejected there.
+Exit codes: 0 success; 1 bad arguments or inputs; 2 an ambiguous city (candidates on stdout).
 """
 
+import argparse
 import datetime as dt
 import itertools
 import json
 import math
+import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -104,6 +114,30 @@ def find_aspects(bodies: dict[str, dict], reduction: float = 0.0, pairs=None) ->
                               "orb": round(orb, 3), "max_orb": limit, "applying": None})
                 break
     return found
+
+
+# --- copied from natal-chart/scripts/grid.py ------------------------------------------------
+
+SYMBOLS = {"Conjunction": "☌", "Sextile": "⚹", "Square": "□", "Trine": "△", "Quincunx": "⚻", "Opposition": "☍"}
+
+
+def _cell(a: dict) -> str:
+    suffix = {True: "a", False: "s", None: ""}[a["applying"]]
+    return f"{SYMBOLS[a['aspect']]} {a['orb']:.1f}{suffix}"
+
+
+def render_grid(chart: dict) -> str:
+    names = list(chart["bodies"])
+    if chart.get("angles"):
+        names += ["Ascendant", "MC"]
+    lookup = {}
+    for a in chart["aspects"]:
+        lookup[(a["body1"], a["body2"])] = lookup[(a["body2"], a["body1"])] = _cell(a)
+    lines = ["| | " + " | ".join(names) + " |", "|" + "---|" * (len(names) + 1)]
+    for row in names:
+        cells = [lookup.get((row, col), "") for col in names]
+        lines.append(f"| {row} | " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
 
 
 # --- midpoint geometry ---------------------------------------------------------------------
@@ -346,3 +380,161 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path) -> dict:
     meta["flags"] = flags + [f for f in extra_flags if f not in flags]
     out.write_text(json.dumps(chart, indent=2, ensure_ascii=False), encoding="utf-8")
     return chart
+
+
+# --- command line (copied from synastry/scripts/synastry.py) --------------------------------
+
+BIRTH_MISSING = ("composite needs the natal-chart skill installed beside it to accept raw birth data "
+                 "or a --city/--geonameid reference; pass chart files and --lat/--lon instead")
+
+
+class Parser(argparse.ArgumentParser):
+    """argparse exits 2 on usage errors; that code is passed through from natal-chart, so exit 1."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        sys.exit(1)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--a", type=Path, help="chart.json for person A")
+    p.add_argument("--b", type=Path, help="chart.json for person B")
+    p.add_argument("--a-birth", help="raw birth arguments for A, as one shell-style string for natal_chart.py")
+    p.add_argument("--b-birth", help="raw birth arguments for B, as one shell-style string for natal_chart.py")
+    p.add_argument("--method", default="midpoint", choices=["midpoint", "davison"])
+    p.add_argument("--city", help='reference place for midpoint houses, e.g. "Paris, FR" (default: A\'s place)')
+    p.add_argument("--geonameid", type=int, help="reference place by GeoNames id")
+    p.add_argument("--lat", type=float, help="reference latitude")
+    p.add_argument("--lon", type=float, help="reference longitude")
+    p.add_argument("--tz", help="accepted for symmetry with natal-chart; a midpoint composite has no clock time")
+    p.add_argument("--houses", choices=list(HOUSE_CODES), help="house system (default: chart A's)")
+    p.add_argument("--out", type=Path, help="output chart (default: composite.json or davison.json)")
+    p.add_argument("--grid", type=Path, help="markdown grid path (default: <out stem>.md)")
+    return p
+
+
+def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
+    """Run the natal script with the user's raw arguments, writing to ``out``, and load the result.
+
+    ``--out`` and ``--grid`` come last so a user-supplied path in ``birth`` cannot write outside the
+    temporary directory. The natal script's "Note:" lines and stderr are forwarded to the user.
+    """
+    try:
+        words = shlex.split(birth)
+    except ValueError as exc:
+        raise ValueError(f"cannot parse birth arguments {birth!r}: {exc}") from exc
+    cmd = [sys.executable, "-I", str(natal_script), *words,
+           "--out", str(out), "--grid", str(out.with_suffix(".md"))]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        raise DelegationFailed(proc.returncode, proc.stdout, proc.stderr)
+    for line in proc.stdout.splitlines():
+        if line.startswith("Note:"):
+            print(line)
+    sys.stderr.write(proc.stderr)
+    return load_chart(out)
+
+
+def resolve_reference(args, a: dict, natal_script: Path | None, tmp: Path) -> dict:
+    """The contract ``location`` for midpoint houses: A's place unless a place flag overrides it.
+
+    ``--lat/--lon`` is used directly. ``--city``/``--geonameid`` is resolved by casting A's birth
+    moment at that place through natal-chart once and reading ``meta.location``; an ambiguous
+    city therefore surfaces as natal-chart's exit 2 with its candidate table.
+    """
+    if args.lat is not None or args.lon is not None:
+        if args.lat is None or args.lon is None:
+            raise ValueError("--lat and --lon must be given together")
+        if args.city or args.geonameid:
+            raise ValueError("pass exactly one of --city, --geonameid, or --lat/--lon, not a mix")
+        return {"name": f"{args.lat:.4f}, {args.lon:.4f}", "latitude": args.lat, "longitude": args.lon,
+                "geonameid": None}
+    if not (args.city or args.geonameid):
+        return a["meta"]["location"]
+    if natal_script is None:
+        raise ValueError(BIRTH_MISSING)
+    local = a["meta"].get("datetime_local") or a["meta"].get("datetime_utc") or "2000-01-01T12:00:00"
+    cmd = [sys.executable, "-I", str(natal_script), "--name", "reference", "--date", local[:10]]
+    if not _time_unknown(a):
+        cmd += ["--time", local[11:19]]
+    cmd += ["--geonameid", str(args.geonameid)] if args.geonameid else ["--city", args.city]
+    out = tmp / "reference.json"
+    cmd += ["--out", str(out), "--grid", str(out.with_suffix(".md"))]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        raise DelegationFailed(proc.returncode, proc.stdout, proc.stderr)
+    return load_chart(out)["meta"]["location"]
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    for side in "ab":
+        file_arg, birth_arg = getattr(args, side), getattr(args, f"{side}_birth")
+        if file_arg and birth_arg:
+            parser.error(f"give --{side} or --{side}-birth, not both")
+        if not file_arg and not birth_arg:
+            parser.error(f"give --{side} or --{side}-birth")
+    place_given = args.city or args.geonameid or args.lat is not None or args.lon is not None or args.tz
+    if args.method == "davison" and place_given:
+        parser.error("a Davison chart is cast at the great-circle midpoint of the two birthplaces; "
+                     "the reference place flags apply to --method midpoint only")
+
+    out = args.out or Path("davison.json" if args.method == "davison" else "composite.json")
+    grid_path = args.grid or out.with_suffix(".md")
+    if grid_path.resolve() == out.resolve():
+        print(f"--grid and --out are the same file ({out}); choose a different --grid", file=sys.stderr)
+        return 1
+
+    natal_script = find_natal_script()
+    if natal_script is None and (args.a_birth or args.b_birth):
+        print(BIRTH_MISSING, file=sys.stderr)
+        return 1
+    if natal_script is None and args.method == "davison":
+        print(NATAL_MISSING, file=sys.stderr)
+        return 1
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="composite-") as tmp:
+            charts = {}
+            for side in "ab":
+                birth = getattr(args, f"{side}_birth")
+                if birth:
+                    charts[side] = cast_chart(natal_script, birth, Path(tmp) / f"{side}.json")
+                else:
+                    charts[side] = load_chart(getattr(args, side))
+            a, b = charts["a"], charts["b"]
+            house_system = args.houses or a["meta"].get("house_system") or "placidus"
+            if args.method == "davison":
+                a["meta"]["house_system"] = house_system
+                chart = cast_davison(natal_script, a, b, out)
+                natal_grid = out.with_name(out.stem + "_aspects.md")
+                if natal_grid.resolve() != grid_path.resolve():
+                    natal_grid.replace(grid_path)
+            else:
+                reference = resolve_reference(args, a, natal_script, Path(tmp))
+                chart = midpoint_chart(a, b, reference, house_system)
+                out.write_text(json.dumps(chart, indent=2, ensure_ascii=False), encoding="utf-8")
+                grid_path.write_text(render_grid(chart), encoding="utf-8")
+    except DelegationFailed as exc:
+        # Exit 2 (ambiguous city) carries the candidate table on stdout; pass both through.
+        sys.stdout.write(exc.stdout)
+        sys.stderr.write(exc.stderr)
+        return exc.code
+    except subprocess.TimeoutExpired:
+        print("natal_chart.py did not finish within 120 seconds", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, KeyError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+    print(f"Wrote {out} and {grid_path}")
+    for flag in chart["meta"]["flags"]:
+        print(f"Note: {flag}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
