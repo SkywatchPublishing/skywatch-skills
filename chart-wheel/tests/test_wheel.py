@@ -231,3 +231,13 @@ def test_separating_aspect_dashed_and_unknown_applying_solid():
     assert find(sun_saturn).get("stroke-dasharray")
     null_applying = next(a for a in chart["aspects"] if a["applying"] is None and a["aspect"] in cw.ASPECT_COLOURS)
     assert find(null_applying).get("stroke-dasharray") is None
+
+
+def test_caption_names_derived_chart_type(tmp_path):
+    chart = load_example()
+    chart["meta"]["chart_type"] = "solar_return"
+    chart["meta"]["derived_from"] = ["Example"]
+    svg = cw.render(chart)
+    assert "Solar return for Example" in svg
+    natal = load_example()
+    assert "Solar return" not in cw.render(natal)

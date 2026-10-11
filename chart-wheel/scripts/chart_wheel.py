@@ -205,7 +205,13 @@ def aspect_lines(chart: dict, asc: float) -> str:
 
 def captions(chart: dict) -> str:
     meta = chart["meta"]
-    top = f'{meta.get("name", "")}  ·  {meta.get("datetime_local", "").replace("T", " ")} ({meta.get("timezone", "")})'
+    title = str(meta.get("name", ""))
+    chart_type = meta.get("chart_type")
+    if chart_type not in (None, "natal"):
+        humanised = str(chart_type).replace("_", " ").capitalize()
+        derived_from = [str(d) for d in (meta.get("derived_from") or [])]
+        title = f"{humanised} for {', '.join(derived_from)}" if derived_from else humanised
+    top = f'{title}  ·  {str(meta.get("datetime_local") or "").replace("T", " ")} ({meta.get("timezone") or ""})'
     parts = [(meta.get("location") or {}).get("name", "")]
     if meta.get("time_unknown"):
         parts.append("Birth time unknown: houses not shown, Moon approximate")
