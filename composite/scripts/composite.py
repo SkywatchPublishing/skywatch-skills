@@ -18,9 +18,14 @@ Usage:
     python composite.py --a chartA.json --b chartB.json [--method midpoint|davison] [--out composite.json]
 """
 
+import datetime as dt
 import itertools
+import json
 import math
+import subprocess
+import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import swisseph as swe
 
@@ -219,3 +224,115 @@ def midpoint_chart(a: dict, b: dict, reference: dict, house_system: str) -> dict
         "bodies": bodies,
         "aspects": find_aspects(aspect_input, pairs=pairs),
     }
+
+
+# --- Davison -------------------------------------------------------------------------------
+
+def great_circle_midpoint(lat1, lon1, lat2, lon2) -> tuple[float, float]:
+    """Midpoint of the shorter great-circle arc between two places, in degrees (lon in [-180, 180))."""
+    p1, l1, p2, l2 = map(math.radians, (lat1, lon1, lat2, lon2))
+    bx = math.cos(p2) * math.cos(l2 - l1)
+    by = math.cos(p2) * math.sin(l2 - l1)
+    lat = math.atan2(math.sin(p1) + math.sin(p2), math.sqrt((math.cos(p1) + bx) ** 2 + by ** 2))
+    lon = l1 + math.atan2(by, math.cos(p1) + bx)
+    return math.degrees(lat), ((math.degrees(lon) + 540.0) % 360.0) - 180.0
+
+
+def davison_inputs(a: dict, b: dict) -> tuple[dt.datetime, float, float]:
+    """The Davison moment (mean of the two UTC instants) and place (great-circle midpoint)."""
+    ta = dt.datetime.strptime(a["meta"]["datetime_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    tb = dt.datetime.strptime(b["meta"]["datetime_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    when = ta + (tb - ta) / 2
+    la, lb = a["meta"]["location"], b["meta"]["location"]
+    lat, lon = great_circle_midpoint(la["latitude"], la["longitude"], lb["latitude"], lb["longitude"])
+    return when.replace(microsecond=0), lat, lon
+
+
+# --- delegation to natal-chart (copied from synastry/scripts/synastry.py) --------------------
+
+NATAL_MISSING = ("composite needs the natal-chart skill installed beside it to cast a Davison chart; "
+                 "use --method midpoint instead")
+
+
+def find_natal_script() -> Path | None:
+    """The sibling natal-chart script: beside this skill, then the user and project skill folders."""
+    rel = Path("natal-chart") / "scripts" / "natal_chart.py"
+    candidates = [
+        Path(__file__).resolve().parents[2] / rel,
+        Path.home() / ".claude" / "skills" / rel,
+        Path.cwd() / ".claude" / "skills" / rel,
+    ]
+    return next((c for c in candidates if c.is_file()), None)
+
+
+class DelegationFailed(Exception):
+    def __init__(self, code: int, stdout: str, stderr: str):
+        super().__init__(f"natal_chart.py exited {code}")
+        self.code, self.stdout, self.stderr = code, stdout, stderr
+
+
+def load_chart(path: Path) -> dict:
+    with open(path, encoding="utf-8") as fh:
+        try:
+            chart = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path}: not valid JSON ({exc})") from exc
+    if not isinstance(chart, dict):
+        raise ValueError(f"{path}: expected a chart object")
+    if chart.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"{path}: expected schema_version {SCHEMA_VERSION}, got {chart.get('schema_version')!r}")
+    if not isinstance(chart.get("meta"), dict) or not chart["meta"].get("name"):
+        raise ValueError(f"{path}: missing meta.name")
+    if not isinstance(chart.get("bodies"), dict) or not chart["bodies"]:
+        raise ValueError(f"{path}: missing bodies")
+    return chart
+
+
+def cast_davison(natal_script: Path, a: dict, b: dict, out: Path) -> dict:
+    """Cast the Davison chart of two chart.json dicts through natal-chart, writing ``out``.
+
+    The timezone comes from timezonefinder at the great-circle midpoint; where there is none
+    (mid-ocean) the chart is cast in UTC and flagged ``davison_timezone_utc``. If either source
+    has an unknown time, ``--time`` is omitted so natal-chart casts at noon and flags it.
+    The aspect grid is written beside ``out``.
+    """
+    ma, mb = a["meta"], b["meta"]
+    for key in ("zodiac", "node"):
+        if ma.get(key) != mb.get(key):
+            raise ValueError(f"charts disagree on {key}: {ma.get(key)!r} vs {mb.get(key)!r}; "
+                             f"recast one of them so both match")
+
+    when, lat, lon = davison_inputs(a, b)
+    from timezonefinder import TimezoneFinder
+    tz = TimezoneFinder().timezone_at(lat=lat, lng=lon)
+    extra_flags = []
+    if not tz:
+        tz, extra_flags = "UTC", ["davison_timezone_utc"]
+    local = when.astimezone(ZoneInfo(tz))
+
+    cmd = [sys.executable, "-I", str(natal_script),
+           "--name", f"{ma['name']} & {mb['name']}",
+           "--date", local.strftime("%Y-%m-%d")]
+    if not (_time_unknown(a) or _time_unknown(b)):
+        cmd += ["--time", local.strftime("%H:%M:%S")]
+    cmd += ["--lat", f"{lat:.6f}", "--lon", f"{lon:.6f}", "--tz", tz,
+            "--houses", ma.get("house_system") or "placidus",
+            "--zodiac", ma.get("zodiac", "tropical"), "--node", ma.get("node", "true"),
+            "--out", str(out), "--grid", str(out.with_name(out.stem + "_aspects.md"))]
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    if proc.returncode != 0:
+        raise DelegationFailed(proc.returncode, proc.stdout, proc.stderr)
+    for line in proc.stdout.splitlines():
+        if line.startswith("Note:"):
+            print(line)
+    sys.stderr.write(proc.stderr)
+
+    chart = load_chart(out)
+    meta = chart["meta"]
+    meta["chart_type"] = "davison"
+    meta["derived_from"] = [ma["name"], mb["name"]]
+    meta["source"] = {**(meta.get("source") or {}), "method": "davison"}
+    flags = list(meta.get("flags") or [])
+    meta["flags"] = flags + [f for f in extra_flags if f not in flags]
+    out.write_text(json.dumps(chart, indent=2, ensure_ascii=False), encoding="utf-8")
+    return chart
