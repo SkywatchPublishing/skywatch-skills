@@ -28,7 +28,7 @@ refuses a chart whose `meta.timezone` is null (a midpoint `composite`), since it
 | `name` | string | Chart owner's name as given on the command line. |
 | `chart_type` | string | `natal` from natal-chart. Derived charts rewrite it: `solar_return`, `lunar_return`, `mars_return`, `jupiter_return`, `saturn_return`, `uranus_return`, `chiron_return`, `composite`, `davison`. |
 | `derived_from` | array of string | Names of the source charts a derived chart was built from; `[]` for natal. |
-| `datetime_local` | string or null | ISO 8601 local wall-clock time, no offset, e.g. `1990-06-15T12:00:00`. Noon when the time is unknown. A midpoint `composite` chart has no real moment and carries `null` here and in `timezone`, `datetime_utc` and `utc_offset`; `davison` and every return carry real values. |
+| `datetime_local` | string or null | ISO 8601 local wall-clock time, no offset, e.g. `1990-06-15T12:00:00`. Noon when the time is unknown. A wall-clock time that occurs twice at a DST fall-back is disambiguated by `--fold` (0 first occurrence, 1 second); `utc_offset` and `datetime_utc` show which was used. A midpoint `composite` chart has no real moment and carries `null` here and in `timezone`, `datetime_utc` and `utc_offset`; `davison` and every return carry real values. |
 | `timezone` | string or null | IANA zone used, e.g. `America/New_York`. `null` for a midpoint `composite`. |
 | `datetime_utc` | string or null | ISO 8601 UTC with trailing `Z`. `null` for a midpoint `composite`. |
 | `utc_offset` | string or null | Offset in force at birth, `+HH:MM` / `-HH:MM`. `null` for a midpoint `composite`. |

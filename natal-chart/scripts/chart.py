@@ -45,7 +45,7 @@ def moon_range(date: dt.date, tz: ZoneInfo, zodiac: str) -> dict:
 
 
 def build_chart(name: str, date: dt.date, time: dt.time | None, timezone: str, location: dict, house_system: str,
-                zodiac: str = "tropical", node: str = "true") -> dict:
+                zodiac: str = "tropical", node: str = "true", fold: int = 0) -> dict:
     flags = []
     tz = ZoneInfo(timezone)
     moon = None
@@ -53,7 +53,8 @@ def build_chart(name: str, date: dt.date, time: dt.time | None, timezone: str, l
         time = dt.time(12, 0)
         flags += ["time_unknown", "moon_uncertain"]
         moon = moon_range(date, tz, zodiac)
-    local = dt.datetime.combine(date, time, tzinfo=tz)
+    # fold picks the second of a repeated wall-clock hour at a DST fall-back (PEP 495).
+    local = dt.datetime.combine(date, time, tzinfo=tz).replace(fold=fold)
     jd = eph.julian_day(local)
     positions = eph.body_positions(jd, zodiac, node)
     if "Chiron" not in positions:

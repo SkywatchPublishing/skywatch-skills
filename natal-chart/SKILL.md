@@ -86,6 +86,7 @@ Other options, all with sensible defaults:
 | Flag | Default | Alternatives |
 |---|---|---|
 | `--time HH:MM` | omitted = unknown | Local wall-clock time at the birthplace, 24-hour and zero-padded (`09:05`, not `9:05`) |
+| `--fold` | `0` | `1` picks the second occurrence of a wall-clock time that repeats at a DST fall-back (e.g. 01:30 on the November change in the US) |
 | `--houses` | `placidus` | `koch`, `equal`, `porphyry`, `whole_sign` |
 | `--zodiac` | `tropical` | `sidereal` (Lahiri ayanamsa) |
 | `--node` | `true` | `mean` |

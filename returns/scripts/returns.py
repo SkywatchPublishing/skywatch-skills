@@ -35,6 +35,10 @@ BODIES = {
     "uranus": ("Uranus", swe.URANUS), "chiron": ("Chiron", swe.CHIRON),
 }
 FLAGS = swe.FLG_SWIEPH
+# Lahiri is the project-wide ayanamsa (natal-chart casts sidereal charts with it). For the
+# precession correction any ayanamsa would do: they differ by a constant, so the drift between
+# two moments is the same.
+swe.set_sid_mode(swe.SIDM_LAHIRI)
 
 
 def wrapped(lon: float, target: float) -> float:
@@ -44,14 +48,11 @@ def wrapped(lon: float, target: float) -> float:
 
 def longitude(jd: float, body: int, sidereal: bool = False) -> float:
     flags = FLAGS | (swe.FLG_SIDEREAL if sidereal else 0)
-    if sidereal:
-        swe.set_sid_mode(swe.SIDM_LAHIRI)
     return swe.calc_ut(jd, body, flags)[0][0]
 
 
 def precession_shift(natal_jd: float, jd: float) -> float:
     """Ayanamsa drift between two moments (Lahiri), in degrees; add to the tropical target."""
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
     return swe.get_ayanamsa_ut(jd) - swe.get_ayanamsa_ut(natal_jd)
 
 
@@ -62,6 +63,9 @@ def find_returns(body: int, target: float, start: dt.date, end: dt.date, siderea
     Samples daily, detects sign changes of the wrapped difference (ignoring the 180° wrap), and
     bisects each to about 1e-10 day. Retrograde loops give one hit per crossing. `shift_fn(jd)`,
     when given, is added to the target at each evaluation (precession correction).
+
+    Limitation: two crossings within one daily sample (a station within a day of the target
+    longitude) leave the sign unchanged and both are missed.
     """
     def diff(jd: float) -> float:
         t = target + (shift_fn(jd) if shift_fn else 0.0)
@@ -87,6 +91,8 @@ def find_returns(body: int, target: float, start: dt.date, end: dt.date, siderea
                     hi = mid
             hits.append((lo + hi) / 2)
         jd, prev = nxt, cur
+    if prev == 0.0:
+        hits.append(jd)
     return hits
 
 
@@ -217,10 +223,16 @@ def cast_return(natal_script: Path, chart: dict, jd: float, place_args: list[str
     """Run natal-chart for one return moment and rewrite the derived-chart keys."""
     local = local_datetime(jd, ZoneInfo(tz_name))
     meta = chart["meta"]
+    # At a DST fall-back the wall-clock time repeats; --fold 1 tells natal-chart this is the second one.
+    fold = ["--fold", "1"] if local.fold == 1 else []
     _run_natal(natal_script, ["--name", meta["name"], "--date", local.date().isoformat(),
-                              "--time", local.time().replace(microsecond=0).isoformat(),
+                              "--time", local.time().replace(microsecond=0).isoformat(), *fold,
                               *place_args, *_settings_args(meta), "--out", str(out)])
     result = json.loads(out.read_text(encoding="utf-8"))
+    if abs(result["meta"]["julian_day_ut"] - jd) * 86400 > 2:
+        raise ValueError(f"{out}: natal-chart cast {result['meta']['datetime_utc']} but the return is at "
+                         f"{local.astimezone(dt.timezone.utc):%Y-%m-%dT%H:%M:%SZ} (timezone {tz_name}); "
+                         "the local time was reinterpreted, probably across a DST change")
     result["meta"]["chart_type"] = chart_type_for(body_key)
     result["meta"]["derived_from"] = [meta["name"]]
     result["meta"]["return_utc"] = local.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -320,6 +332,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.end < args.start:
         parser.error(f"--end {args.end} is before --start {args.start}")
+    if args.city and args.geonameid:
+        parser.error("pass either --city or --geonameid, not both")
     if (args.city or args.geonameid) and (args.lat is not None or args.lon is not None):
         parser.error("pass exactly one of --city, --geonameid, or --lat/--lon, not a mix")
     if (args.lat is None) != (args.lon is None):
@@ -343,6 +357,10 @@ def main(argv=None) -> int:
         print(f"{args.chart}: no {body_name} in bodies{hint}; cannot cast {body_name} returns", file=sys.stderr)
         return 1
     meta = chart["meta"]
+    if args.precessed and _is_sidereal(meta):
+        print("--precessed applies to tropical charts only; a sidereal chart's returns are already precession-free",
+              file=sys.stderr)
+        return 1
     natal_jd = meta["julian_day_ut"]
     target = chart["bodies"][body_name]["longitude"]
 
@@ -358,14 +376,16 @@ def main(argv=None) -> int:
         tz_name = resolve_timezone(natal_script, chart, place_args)
         hits = find_returns(body_id, target, args.start, args.end, _is_sidereal(meta), shift_fn)
         args.out_dir.mkdir(parents=True, exist_ok=True)
-        results, used = [], {}
+        results = []
         for jd in hits:
             local_date = local_datetime(jd, ZoneInfo(tz_name)).date().isoformat()
-            stem = f"{args.body}_return_{local_date}"
-            used[stem] = used.get(stem, 0) + 1
-            if used[stem] > 1:
-                stem = f"{stem}_{used[stem]}"
-            out = args.out_dir / f"{stem}.json"
+            base = f"{args.body}_return_{local_date}"
+            out, n = args.out_dir / f"{base}.json", 1
+            while out.exists():   # never overwrite: an earlier run, or a second crossing on the same day
+                n += 1
+                out = args.out_dir / f"{base}_{n}.json"
+            if n > 1:
+                print(f"Note: {base}.json already exists; writing {out.name} instead")
             results.append((out, cast_return(natal_script, chart, jd, place_args, tz_name, out, args.body, extra_flags)))
     except DelegationFailed as exc:
         # Exit 2 (ambiguous city) carries the candidate table on stdout; pass both through.
@@ -381,7 +401,7 @@ def main(argv=None) -> int:
 
     summary = args.out_dir / "returns_summary.md"
     summary.write_text(render_summary(chart, args.body, results, args.precessed), encoding="utf-8")
-    print(f"Wrote {len(results)} return chart(s) and {summary}")
+    print(f"Wrote {len(results)} return chart(s), each with a _aspects.md aspect-grid sidecar, and {summary}")
     for flag in sorted(set(extra_flags)):
         print(f"Note: {flag}")
     return 0

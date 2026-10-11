@@ -38,6 +38,8 @@ def parse_args(argv):
     p.add_argument("--name", required=True)
     p.add_argument("--date", required=True, type=dt.date.fromisoformat)
     p.add_argument("--time", type=dt.time.fromisoformat, help="HH:MM local; omit if unknown")
+    p.add_argument("--fold", type=int, default=0, choices=[0, 1],
+                   help="which of a repeated local hour (DST fall-back) --time means: 0 first, 1 second")
     p.add_argument("--city", help='e.g. "Paris, FR" or "Paris, TX"')
     p.add_argument("--geonameid", type=int)
     p.add_argument("--lat", type=float)
@@ -105,7 +107,8 @@ def main(argv=None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    result = ch.build_chart(args.name, args.date, args.time, tz, location, args.houses, args.zodiac, args.node)
+    result = ch.build_chart(args.name, args.date, args.time, tz, location, args.houses, args.zodiac, args.node,
+                            fold=args.fold)
     args.out.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
     grid_path = args.grid or args.out.with_name(args.out.stem + "_aspects.md")
     grid_path.write_text(grid.render(result), encoding="utf-8")
