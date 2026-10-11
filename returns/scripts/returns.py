@@ -351,6 +351,10 @@ def main(argv=None) -> int:
     except (OSError, ValueError) as exc:
         print(exc, file=sys.stderr)
         return 1
+    if chart["meta"].get("datetime_local") is None or chart["meta"].get("timezone") is None:
+        print(f"returns: this chart has no real moment (chart_type {chart['meta'].get('chart_type', 'natal')}); "
+              "returns need a natal, return or Davison chart", file=sys.stderr)
+        return 1
     body_name, body_id = BODIES[args.body]
     if body_name not in chart["bodies"]:
         hint = " (flagged chiron_unavailable)" if args.body == "chiron" else ""
@@ -399,7 +403,12 @@ def main(argv=None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    summary = args.out_dir / "returns_summary.md"
+    summary, n = args.out_dir / "returns_summary.md", 1
+    while summary.exists():   # never overwrite, as with the charts
+        n += 1
+        summary = args.out_dir / f"returns_summary_{n}.md"
+    if n > 1:
+        print(f"Note: returns_summary.md already exists; writing {summary.name} instead")
     summary.write_text(render_summary(chart, args.body, results, args.precessed), encoding="utf-8")
     print(f"Wrote {len(results)} return chart(s), each with a _aspects.md aspect-grid sidecar, and {summary}")
     for flag in sorted(set(extra_flags)):

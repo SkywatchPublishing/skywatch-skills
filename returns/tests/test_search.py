@@ -113,3 +113,11 @@ def test_cast_return_keeps_second_occurrence_of_fall_back_hour(tmp_path):
     assert meta["utc_offset"] == "-05:00"
     assert meta["datetime_utc"] == "2027-11-07T06:30:00Z" == meta["return_utc"]
     assert abs(meta["julian_day_ut"] - jd) * 86400 < 2
+
+
+def test_consecutive_solar_returns_are_a_tropical_year_apart():
+    natal_sun = swe.calc_ut(NATAL_JD, swe.SUN, swe.FLG_SWIEPH)[0][0]
+    hits = rt.find_returns(swe.SUN, natal_sun, dt.date(2027, 1, 1), dt.date(2029, 12, 31))
+    assert len(hits) == 3
+    for a, b in zip(hits, hits[1:]):
+        assert b - a == pytest.approx(365.24, abs=0.02)

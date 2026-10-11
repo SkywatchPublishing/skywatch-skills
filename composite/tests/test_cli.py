@@ -152,3 +152,27 @@ def test_houses_ignored_note_for_untimed_composite(tmp_path):
                "--houses", "koch", cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert "Note: --houses ignored because the composite has no houses (an untimed side)" in proc.stdout
+
+
+WHEEL = ROOT / "chart-wheel" / "scripts" / "chart_wheel.py"
+TRANSITS = ROOT / "transits-to-natal" / "scripts" / "transits.py"
+SYNASTRY = ROOT / "synastry" / "scripts" / "synastry.py"
+
+
+def test_davison_round_trips_through_sibling_skills(tmp_path):
+    proc = run("--a", str(EXAMPLE), "--b", str(PARTNER), "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    dav = tmp_path / "davison.json"
+
+    def sibling(script, *args):
+        if not script.is_file():
+            pytest.skip(f"sibling skill absent: {script}")
+        p = subprocess.run([sys.executable, "-I", str(script), *args], cwd=tmp_path, capture_output=True, text=True)
+        assert p.returncode == 0, f"{script.name}: {p.stderr}"
+
+    sibling(WHEEL, str(dav), "--out", "wheel.svg")
+    assert (tmp_path / "wheel.svg").exists()
+    sibling(TRANSITS, str(dav), "--start", "2027-01-01", "--end", "2027-01-31", "--out", "t.csv")
+    assert (tmp_path / "t.csv").exists()
+    sibling(SYNASTRY, "--a", str(EXAMPLE), "--b", str(dav), "--out", "syn.json", "--grid", "syn.md")
+    assert (tmp_path / "syn.json").exists()

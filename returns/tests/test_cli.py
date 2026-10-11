@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "returns.py"
 EXAMPLE = Path(__file__).resolve().parents[2] / "natal-chart" / "examples" / "chart.json"
 NATAL = Path(__file__).resolve().parents[2] / "natal-chart" / "scripts" / "natal_chart.py"
@@ -107,3 +109,51 @@ def test_precessed_rejected_for_sidereal_chart(tmp_path):
     assert r.returncode == 1
     assert "--precessed applies to tropical charts only; a sidereal chart's returns are already precession-free" in r.stderr
     assert not list(tmp_path.glob("sun_return_*.json"))
+
+
+COMPOSITE = Path(__file__).resolve().parents[2] / "composite" / "examples" / "composite.json"
+WHEEL = Path(__file__).resolve().parents[2] / "chart-wheel" / "scripts" / "chart_wheel.py"
+TRANSITS = Path(__file__).resolve().parents[2] / "transits-to-natal" / "scripts" / "transits.py"
+SYNASTRY = Path(__file__).resolve().parents[2] / "synastry" / "scripts" / "synastry.py"
+
+
+def test_midpoint_composite_is_refused_via_main(tmp_path, capsys, monkeypatch):
+    import returns as rt
+    monkeypatch.chdir(tmp_path)
+    code = rt.main([str(COMPOSITE), "--start", "2027-01-01", "--end", "2027-12-31"])
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "returns: this chart has no real moment (chart_type composite); returns need a natal, return or Davison chart" in err
+    assert not list(tmp_path.glob("*.json"))
+
+
+def test_summary_takes_next_free_name_and_keeps_existing(tmp_path):
+    seed = tmp_path / "returns_summary.md"
+    seed.write_text("seed")
+    r = run(str(EXAMPLE), "--start", "2027-01-01", "--end", "2027-12-31", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert seed.read_text() == "seed"
+    assert (tmp_path / "returns_summary_2.md").exists()
+    assert "2027-06-15" in (tmp_path / "returns_summary_2.md").read_text()
+    assert "Note: returns_summary.md already exists; writing returns_summary_2.md instead" in r.stdout
+    assert "returns_summary_2.md" in [line for line in r.stdout.splitlines() if line.startswith("Wrote")][0]
+
+
+def test_solar_return_round_trips_through_sibling_skills(tmp_path):
+    r = run(str(EXAMPLE), "--start", "2027-01-01", "--end", "2027-12-31", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    ret = tmp_path / "sun_return_2027-06-15.json"
+    assert ret.exists()
+
+    def sibling(script, *args):
+        if not script.is_file():
+            pytest.skip(f"sibling skill absent: {script}")
+        p = subprocess.run([sys.executable, "-I", str(script), *args], cwd=tmp_path, capture_output=True, text=True)
+        assert p.returncode == 0, f"{script.name}: {p.stderr}"
+
+    sibling(WHEEL, str(ret), "--out", "wheel.svg")
+    assert (tmp_path / "wheel.svg").exists()
+    sibling(TRANSITS, str(ret), "--start", "2027-06-15", "--end", "2027-07-15", "--out", "t.csv")
+    assert (tmp_path / "t.csv").exists()
+    sibling(SYNASTRY, "--a", str(EXAMPLE), "--b", str(ret), "--out", "syn.json", "--grid", "syn.md")
+    assert (tmp_path / "syn.json").exists()

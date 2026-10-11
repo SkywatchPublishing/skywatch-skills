@@ -75,7 +75,7 @@ Requires Python 3.11 or newer.
 
 ## Why it exists
 
-A cast chart is the foundation everything else in chart work rests on. `chart.json` is a documented contract: `chart-wheel` draws it, `transits-to-natal` scans the sky against it, and `synastry` compares two of them. Keeping the casting in one place means the timezone, house, and orb rules are decided once and shared by every later skill.
+A cast chart is the foundation everything else in chart work rests on. `chart.json` is a documented contract: `chart-wheel` draws it, `transits-to-natal` scans the sky against it, `synastry` compares two of them, `returns` casts return charts from it and `composite` builds relationship charts from a pair. Keeping the casting in one place means the timezone, house, and orb rules are decided once and shared by every later skill.
 
 ## Data attribution
 

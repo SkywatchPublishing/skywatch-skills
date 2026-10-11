@@ -28,7 +28,7 @@ For each return found in the range:
 | `<body>_return_<YYYY-MM-DD>.json` | A full `chart.json` for the return moment (schema in `natal-chart/CONTRACT.md`): bodies, angles, cusps, aspects, cast with the natal chart's house system, zodiac and node setting. The date is the local date at the return place. The script never overwrites: if `<body>_return_<date>.json` already exists (an earlier run into the same folder, or a second crossing on the same local date in a tight retrograde loop) the new chart takes the next free name `_2`, `_3`, ... and a `Note:` line says so. |
 | `<body>_return_<YYYY-MM-DD>_aspects.md` | The Markdown aspect grid natal-chart writes beside every chart, for the return chart's own aspects. |
 
-Plus one `returns_summary.md` for the run: the natal body's longitude, the natal Ascendant and Moon, a table with one row per return (name, exact UTC moment, local time and timezone, place, ASC, MC, DSC, IC, return Moon sign), a line per return comparing the return Ascendant sign and Moon sign to the natal ones, and the flags that apply.
+Plus one `returns_summary.md` for the run: the natal body's longitude, the natal Ascendant and Moon, a table with one row per return (name, exact UTC moment, local time and timezone, place, ASC, MC, DSC, IC, return Moon sign), a line per return comparing the return Ascendant sign and Moon sign to the natal ones, and the flags that apply. The summary is numbered the same way as the charts: if `returns_summary.md` already exists the run writes `returns_summary_2.md`, `_3`, ... and a `Note:` line says so; the `Wrote` line names the file actually written.
 
 In each return's `meta`:
 
@@ -91,7 +91,7 @@ python scripts/returns.py chart.json --start 2027-01-01 --end 2027-12-31 --city 
 
 Pass at most one of `--city`, `--geonameid`, `--lat/--lon`; none means the natal place.
 
-Exit codes: `0` success (`Wrote N return chart(s), each with a _aspects.md aspect-grid sidecar, and <dir>/returns_summary.md`, then a `Note:` line per flag), `1` bad input (end before start, `--city` together with `--geonameid` or either with `--lat/--lon`, a half-given place, `--tz` without coordinates, a chart that is not `schema_version` 1, a body missing from the chart, `--precessed` on a sidereal chart, natal-chart not installed, unknown city), `2` ambiguous city. On `2` nothing is written and natal-chart's candidate table is printed on stdout: show it, ask the user which place they mean, and re-run with `--geonameid <id>`. Do not guess.
+Exit codes: `0` success (`Wrote N return chart(s), each with a _aspects.md aspect-grid sidecar, and <dir>/returns_summary.md`, then a `Note:` line per flag), `1` bad input (end before start, `--city` together with `--geonameid` or either with `--lat/--lon`, a half-given place, `--tz` without coordinates, a chart that is not `schema_version` 1, a midpoint composite (`this chart has no real moment`: it has no `datetime_local` or `timezone` to search from; a Davison chart is fine), a body missing from the chart, `--precessed` on a sidereal chart, natal-chart not installed, unknown city), `2` ambiguous city. On `2` nothing is written and natal-chart's candidate table is printed on stdout: show it, ask the user which place they mean, and re-run with `--geonameid <id>`. Do not guess.
 
 **Examples:**
 ```bash
@@ -185,6 +185,6 @@ Do not read the return chart as a natal chart; it describes the period until the
 | `expected schema_version 1` | The file is not a `chart.json` from the natal-chart skill; cast one with that skill |
 | Return moment differs from another program by minutes | Check whether the other program precession-corrects (`--precessed`), and whether the natal chart is sidereal: a sidereal chart's return is searched in sidereal longitude, which is the precession-corrected moment, later than the tropical return by about 20 minutes per year of age |
 | Return Ascendant disagrees with another program by a sign | Different return place or timezone; `meta.location` and `meta.timezone` in the return file show what was used |
-| `Note: <name>.json already exists; writing <name>_2.json instead` | The output folder already holds a chart of that name from an earlier run; nothing was overwritten. Use a fresh `--out-dir` per run if that is confusing |
+| `Note: <name>.json already exists; writing <name>_2.json instead` (likewise `returns_summary.md` -> `returns_summary_2.md`) | The output folder already holds a chart or summary of that name from an earlier run; nothing was overwritten. Use a fresh `--out-dir` per run if that is confusing |
 | `--precessed applies to tropical charts only` | The chart is sidereal; drop `--precessed`, its returns are already searched in sidereal longitude |
 | `No such file` for the script | Paths are relative to the skill folder; run from there or use the full path |

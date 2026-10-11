@@ -105,7 +105,8 @@ two source names.
   shift grows by about 50 arcseconds per year of age.
 - Composite: midpoint of 350° and 10° is 0°; a chart composited with itself is
   itself; Davison of a chart with itself is the same moment and place; the
-  great-circle midpoint of New York and Tokyo lies near the Aleutians.
+  great-circle midpoint of New York and Tokyo lies on Alaska's Arctic coast
+  (69.7 N, 153.7 W).
 - Round trips: return and Davison charts pass through chart-wheel,
   transits-to-natal and synastry unchanged, proven by a fresh-copy smoke test.
 - A golden check against a published solar return is wanted but has the same
@@ -121,3 +122,14 @@ gains two rows. CONTRACT.md documents the two new meta keys.
 
 Mercury and Venus returns, progressions, relocated natal charts as a
 standalone skill, transits to a composite, and a published-return golden test.
+
+## Implementation notes
+
+Decisions made while building the skills that differ from or sharpen the plan above:
+
+- An untimed Davison chart (either birth without a time) is cast at local noon at the midpoint place on the local date of the mean instant, not at the mean of the two noons, so it follows natal-chart's own untimed convention and carries `time_unknown`.
+- natal-chart gained `--fold` so a return that falls in the repeated hour of a DST fall-back is cast at the right instant; `returns.py` passes `--fold 1` for the second occurrence and checks the cast against the return moment to within 2 seconds.
+- Antipodal midpoints use the min+90 tie rule when the body longitudes are 180° apart (the midpoint is the smaller longitude plus 90°); antipodal birthplaces on a Davison chart have no unique great-circle midpoint and are refused with exit 1.
+- Extra flags beyond the plan: `return_place_natal`, `natal_time_unknown` and `precession_corrected` on returns, `davison_timezone_utc` on a Davison chart whose midpoint has no timezone, which is then cast in UTC (the UTC fallback). All four are in CONTRACT.md.
+- chart.json stores longitudes to 4 decimals, and the return target is read from that rounded value, so return moments are exact for the rounded degree only: about 4 s for the Sun, about 1 s for the Moon. The bisection resolves far below that.
+- The published-return golden check (a solar return against another program's value) is tracked in the same open-items list as the natal golden set, in the implementation notes of `2026-10-08-chart-core-design.md`.

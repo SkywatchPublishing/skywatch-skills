@@ -160,7 +160,7 @@ A midpoint composite is not a moment in time: do not describe it as "the sky on"
 
 - A chart composited with itself is itself, and the Davison of a chart with itself is the same moment and place; the tests check both. Composites from two chart files and from the same two birth strings produce identical JSON.
 - The helpers (sign formatting, house placement, the aspect table, `find_aspects`, the grid renderer) are copied from `natal-chart`, not imported across skill folders, so this folder is copyable on its own. Only the Davison and raw-birth paths reach outside it, to the natal script.
-- The great-circle midpoint of two places on opposite sides of the world (New York and Tokyo) is near the Aleutians, far from either; that is correct, and the Davison chart there is what the method defines. The arithmetic mean of the coordinates would be somewhere else entirely.
+- The great-circle midpoint of two places on opposite sides of the world (New York and Tokyo) is on Alaska's Arctic coast (69.7 N, 153.7 W), far from either; that is correct, and the Davison chart there is what the method defines. The arithmetic mean of the coordinates would be somewhere else entirely.
 
 ---
 

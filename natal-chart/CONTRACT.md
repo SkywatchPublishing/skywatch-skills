@@ -33,15 +33,16 @@ refuses a chart whose `meta.timezone` is null (a midpoint `composite`), since it
 | `timezone` | string or null | IANA zone used, e.g. `America/New_York`. `null` for a midpoint `composite`. |
 | `datetime_utc` | string or null | ISO 8601 UTC with trailing `Z`. `null` for a midpoint `composite`. |
 | `utc_offset` | string or null | Offset in force at birth, `+HH:MM` / `-HH:MM`. `null` for a midpoint `composite`. |
+| `return_utc` | string | ISO 8601 UTC with trailing `Z`, present only on return charts: the exact return moment, which `datetime_utc` matches to the second. |
 | `julian_day_ut` | float | Julian day (UT), 7 decimals. |
 | `time_unknown` | bool | True when no `--time` was given; the chart was cast at local noon. |
-| `moon_range` | object or null | `{start, end}` Moon longitudes in degrees at 00:00 and 23:59 local; only when `time_unknown`, else `null`. The span may wrap through 0° (`start` > `end`, e.g. 355 -> 8). |
+| `moon_range` | object or null | `{start, end}` Moon longitudes in degrees at 00:00 and 23:59 local; present when `time_unknown`, else `null`, except a midpoint `composite`, where it is `null` even when `time_unknown` (there is no day to span). The span may wrap through 0° (`start` > `end`, e.g. 355 -> 8). |
 | `location` | object | `{name: string, latitude: float, longitude: float, geonameid: int or null}`. `geonameid` is `null` for `--lat/--lon` input; `name` is then `"lat, lon"`. |
 | `zodiac` | string | `"tropical"` or `"sidereal_lahiri"`. |
 | `house_system` | string or null | `placidus`, `koch`, `equal`, `porphyry` or `whole_sign` as actually used (after any polar fallback); `null` when `time_unknown`. |
 | `node` | string | `"true"` or `"mean"`: which lunar node the `Node` body holds. |
 | `flags` | array of string | Caveats, see below. Empty array when none. |
-| `source` | object | `{library: "pyswisseph", version: string, ephemeris_files: bool}`. `ephemeris_files` false means the built-in Moshier ephemeris was used (slightly lower precision). |
+| `source` | object | `{library: "pyswisseph", version: string, ephemeris_files: bool}`. `ephemeris_files` false means the built-in Moshier ephemeris was used (slightly lower precision). Composite charts add `method`: `"midpoint"` or `"davison"`; absent on every other chart type. |
 
 ### `flags` values
 
@@ -51,6 +52,10 @@ refuses a chart whose `meta.timezone` is null (a midpoint `composite`), since it
 | `moon_uncertain` | Always accompanies `time_unknown`: the Moon moves ~12-15° per day, so use `meta.moon_range`, not `bodies.Moon`, for sign claims. |
 | `chiron_unavailable` | Chiron could not be computed (ephemeris file or date range); the `Chiron` key is absent from `bodies`. |
 | `polar_fallback_whole_sign` | The requested house system failed at this latitude; whole-sign houses were used and `meta.house_system` says `whole_sign`. |
+| `return_place_natal` | Return charts: no place was given, so the return was cast at the natal location; the houses assume the person is at the birthplace. |
+| `natal_time_unknown` | Return charts: the natal chart has no birth time, so the target longitude is the noon position; a lunar return's moment is uncertain by about half a day. |
+| `precession_corrected` | Return charts: `--precessed` was used; the target was shifted by the precession accumulated since birth (Lahiri). |
+| `davison_timezone_utc` | Davison charts: the midpoint has no timezone (open ocean, Antarctica), so the chart is cast in UTC; positions are unaffected. |
 
 ## `angles`
 

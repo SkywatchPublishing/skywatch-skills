@@ -8,6 +8,8 @@ Usage:
     python natal_chart.py --name "Ada" --date 1990-06-15 --lat 51.5 --lon -0.13   # timezone from coordinates
 
 Omit --time when the birth time is unknown: the chart is cast at noon with no houses.
+A wall-clock time that occurs twice at a DST fall-back is disambiguated with --fold 0 (first
+occurrence, default) or --fold 1 (second); meta.utc_offset shows which was used.
 Exit codes: 0 success; 1 bad arguments or unknown location (message on stderr);
 2 the city was ambiguous; the candidates are printed. Re-run with --geonameid.
 """
