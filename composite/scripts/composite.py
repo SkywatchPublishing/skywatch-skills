@@ -273,11 +273,18 @@ def midpoint_chart(a: dict, b: dict, reference: dict, house_system: str) -> dict
 # --- Davison -------------------------------------------------------------------------------
 
 def great_circle_midpoint(lat1, lon1, lat2, lon2) -> tuple[float, float]:
-    """Midpoint of the shorter great-circle arc between two places, in degrees (lon in [-180, 180))."""
+    """Midpoint of the shorter great-circle arc between two places, in degrees (lon in [-180, 180)).
+
+    Raises ValueError for antipodal places: every great circle through them is equally short, so
+    there is no unique midpoint.
+    """
     p1, l1, p2, l2 = map(math.radians, (lat1, lon1, lat2, lon2))
     bx = math.cos(p2) * math.cos(l2 - l1)
     by = math.cos(p2) * math.sin(l2 - l1)
-    lat = math.atan2(math.sin(p1) + math.sin(p2), math.sqrt((math.cos(p1) + bx) ** 2 + by ** 2))
+    denom = math.sqrt((math.cos(p1) + bx) ** 2 + by ** 2)
+    if denom < 1e-9:
+        raise ValueError("birthplaces are antipodal; no unique midpoint")
+    lat = math.atan2(math.sin(p1) + math.sin(p2), denom)
     lon = l1 + math.atan2(by, math.cos(p1) + bx)
     return math.degrees(lat), ((math.degrees(lon) + 540.0) % 360.0) - 180.0
 
@@ -336,9 +343,15 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path) -> dict:
     """Cast the Davison chart of two chart.json dicts through natal-chart, writing ``out``.
 
     The timezone comes from timezonefinder at the great-circle midpoint; where there is none
-    (mid-ocean) the chart is cast in UTC and flagged ``davison_timezone_utc``. If either source
-    has an unknown time, ``--time`` is omitted so natal-chart casts at noon and flags it.
-    The aspect grid is written beside ``out``.
+    (mid-ocean) the chart is cast in UTC and flagged ``davison_timezone_utc``.
+
+    If either source has an unknown time, ``--time`` is omitted and natal-chart applies its own
+    untimed convention: the chart is cast at local noon at the midpoint place on the local date of
+    the mean instant (not at the mean of the two noons, and not at the mean instant itself), with
+    ``time_unknown`` set and no angles or houses. The aspect grid is written beside ``out``.
+
+    Raises ValueError when the charts disagree on zodiac or node, or when the birthplaces are
+    antipodal (no unique midpoint).
     """
     ma, mb = a["meta"], b["meta"]
     for key in ("zodiac", "node"):
@@ -346,7 +359,10 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path) -> dict:
             raise ValueError(f"charts disagree on {key}: {ma.get(key)!r} vs {mb.get(key)!r}; "
                              f"recast one of them so both match")
 
-    when, lat, lon = davison_inputs(a, b)
+    try:
+        when, lat, lon = davison_inputs(a, b)
+    except ValueError as exc:
+        raise ValueError("birthplaces are antipodal; no unique midpoint") from exc
     from timezonefinder import TimezoneFinder
     tz = TimezoneFinder().timezone_at(lat=lat, lng=lon)
     extra_flags = []

@@ -18,6 +18,19 @@ def test_great_circle_midpoint():
     assert lon == pytest.approx(180.0, abs=1e-6) or lon == pytest.approx(-180.0, abs=1e-6)
 
 
+def test_great_circle_midpoint_antipodal_raises():
+    with pytest.raises(ValueError, match="antipodal"):
+        cp.great_circle_midpoint(0.0, 0.0, 0.0, 180.0)
+
+
+def test_cast_davison_antipodal_raises(tmp_path):
+    a = json.loads(EXAMPLE.read_text()); b = json.loads(EXAMPLE.read_text())
+    a["meta"]["location"] = {"name": "x", "latitude": 0.0, "longitude": 0.0, "geonameid": None}
+    b["meta"]["location"] = {"name": "y", "latitude": 0.0, "longitude": 180.0, "geonameid": None}
+    with pytest.raises(ValueError, match="birthplaces are antipodal; no unique midpoint"):
+        cp.cast_davison(NATAL, a, b, tmp_path / "anti.json")
+
+
 def test_davison_inputs_of_self_are_self():
     a = json.loads(EXAMPLE.read_text())
     when, lat, lon = cp.davison_inputs(a, a)
@@ -43,13 +56,10 @@ def test_cast_davison_of_examples(tmp_path):
     assert m["derived_from"] == ["Example", "Partner"]
     assert m["name"] == "Example & Partner"
     assert m["source"]["method"] == "davison"
-    assert m["location"]["latitude"] == pytest.approx(52.4, abs=0.5)
-    assert m["location"]["longitude"] == pytest.approx(-41.0, abs=0.5)
-    if m["timezone"] == "UTC":
-        assert "davison_timezone_utc" in m["flags"]
-    else:
-        ZoneInfo(m["timezone"])
-        assert "davison_timezone_utc" not in m["flags"]
+    assert m["location"]["latitude"] == pytest.approx(52.37, abs=0.05)
+    assert m["location"]["longitude"] == pytest.approx(-41.29, abs=0.05)
+    assert m["timezone"] == "Etc/GMT+3"
+    assert "davison_timezone_utc" not in m["flags"]
     when, _, _ = cp.davison_inputs(a, b)
     assert m["datetime_utc"] == when.strftime("%Y-%m-%dT%H:%M:%SZ")
     assert m["house_system"] == a["meta"]["house_system"]
@@ -62,6 +72,21 @@ def test_cast_davison_of_self_reproduces_sun(tmp_path):
     assert c["bodies"]["Sun"]["longitude"] == pytest.approx(a["bodies"]["Sun"]["longitude"], abs=0.001)
     assert c["meta"]["datetime_utc"] == a["meta"]["datetime_utc"]
     assert c["meta"]["timezone"] == a["meta"]["timezone"]
+    assert c["meta"]["location"]["latitude"] == pytest.approx(a["meta"]["location"]["latitude"], abs=1e-4)
+    assert c["meta"]["location"]["longitude"] == pytest.approx(a["meta"]["location"]["longitude"], abs=1e-4)
+
+
+def test_cast_davison_utc_fallback_where_no_zone(tmp_path, monkeypatch):
+    from timezonefinder import TimezoneFinder
+    monkeypatch.setattr(TimezoneFinder, "timezone_at", lambda self, **kw: None)
+    a = json.loads(EXAMPLE.read_text()); b = json.loads(PARTNER.read_text())
+    c = cp.cast_davison(NATAL, a, b, tmp_path / "utc.json")
+    m = c["meta"]
+    assert m["timezone"] == "UTC"
+    assert "davison_timezone_utc" in m["flags"]
+    when, _, _ = cp.davison_inputs(a, b)
+    assert m["datetime_local"] == when.strftime("%Y-%m-%dT%H:%M:%S")
+    assert m["datetime_utc"] == when.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def test_cast_davison_untimed_side_casts_at_noon(tmp_path):
@@ -72,3 +97,8 @@ def test_cast_davison_untimed_side_casts_at_noon(tmp_path):
     assert c["angles"] is None and c["houses"] is None
     assert "time_unknown" in c["meta"]["flags"]
     assert c["meta"]["chart_type"] == "davison"
+    # Not the mean instant itself: local noon at the midpoint place on the mean instant's local date.
+    when, _, _ = cp.davison_inputs(a, b)
+    local_date = when.astimezone(ZoneInfo(c["meta"]["timezone"])).strftime("%Y-%m-%d")
+    assert local_date == "1989-04-09"
+    assert c["meta"]["datetime_local"] == f"{local_date}T12:00:00"

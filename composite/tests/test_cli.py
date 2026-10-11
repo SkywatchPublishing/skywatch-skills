@@ -41,6 +41,17 @@ def test_davison_of_examples(tmp_path):
     assert not (tmp_path / "davison_aspects.md").exists()
 
 
+def test_davison_antipodal_birthplaces_exits_1(tmp_path):
+    a = json.loads(EXAMPLE.read_text()); b = json.loads(EXAMPLE.read_text())
+    a["meta"]["location"] = {"name": "x", "latitude": 0.0, "longitude": 0.0, "geonameid": None}
+    b["meta"]["location"] = {"name": "y", "latitude": 0.0, "longitude": 180.0, "geonameid": None}
+    (tmp_path / "a.json").write_text(json.dumps(a)); (tmp_path / "b.json").write_text(json.dumps(b))
+    proc = run("--a", "a.json", "--b", "b.json", "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "birthplaces are antipodal; no unique midpoint" in proc.stderr
+    assert not (tmp_path / "davison.json").exists()
+
+
 def _strip(chart: dict) -> dict:
     chart = json.loads(json.dumps(chart))
     chart["meta"].pop("source", None)
