@@ -28,7 +28,7 @@ Two CSV files in the output folder (the current directory unless `--out-dir` is 
 |---|---|
 | Date | YYYY-MM-DD, local date of the rounded time |
 | Time | Local time to the nearest minute with its zone abbreviation, e.g. `07:12 PM PDT` |
-| Body 1 | The faster body (the Moon whenever it is involved) |
+| Body 1 | The body earlier in the order Moon, Sun, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto (roughly fastest first, so always the Moon when it is involved) |
 | Aspect | Conjunction / Sextile / Square / Trine / Opposition |
 | Body 2 | The slower body |
 | UTC | The exact moment in UTC, to the second, e.g. `2026-04-02T02:11:57Z` |
@@ -123,7 +123,7 @@ Voids range from a few minutes to nearly two days. A void of 35 hours, such as t
 
 1. **Say what was computed.** Month, time zone, modern or traditional bodies, exact aspects only, times rounded to the nearest minute.
 2. **Show the voids.** Render the void table in conversation (begins, last aspect, ingress, duration). It is short, 12 to 14 rows, and it is usually what the user wants first.
-3. **Summarise the aspectarian.** Do not paste 100 rows. Name the lunar phases (Moon conjunct, square, and opposite the Sun), any aspects between slow planets, and stations or long voids worth noting. Then point to the file.
+3. **Summarise the aspectarian.** Do not paste 100 rows. Name the lunar phases (Moon conjunct, square, and opposite the Sun), the aspects between the slow planets, and any void longer than a day. Then point to the file.
 4. **Deliver both files** with whatever file-sharing mechanism the environment provides.
 
 ---

@@ -92,7 +92,7 @@ After the script runs, deliver the CSV to the user with whatever file-sharing me
 
 ## Related skill
 
-For a chronological aspectarian with exact times for every body (not only the Moon), Moon sign ingresses, and a void-of-course Moon table, use the `aspectarian` skill. It computes from NASA JPL's DE440 ephemeris instead of the Swiss Ephemeris and agrees with this skill's Moon times to the minute.
+For a chronological aspectarian with exact times for every body (not only the Moon), Moon sign ingresses, and a void-of-course Moon table, use the `aspectarian` skill. It computes from NASA JPL's DE440 ephemeris instead of the Swiss Ephemeris; for April 2026 the two list the same 77 Moon aspects at the same minutes.
 
 ---
 

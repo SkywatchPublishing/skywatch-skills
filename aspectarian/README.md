@@ -76,7 +76,9 @@ python -m pytest aspectarian/tests -q
 
 - All 50 lunar phases of 2026 are checked against the times the U.S. Naval Observatory publishes, to the minute.
 - When `pyswisseph` is installed, positions through 2026 and every April 2026 event are checked against the Swiss Ephemeris as an independent oracle. With the Swiss data files in `natal-chart/ephe/` the two agree to within 0.01 arcseconds. The skill itself never imports it.
-- The April 2026 run is compared with the committed examples, and the Moon times agree to the minute with the `astrology-ephemeris` skill's.
+- The April 2026 run is compared with the committed examples.
+
+The April 2026 Moon times were also checked by hand against the `astrology-ephemeris` example: the same 77 aspects at the same minutes. No test spans the two folders, so each stays copyable on its own.
 
 Tests that need the ephemeris are skipped until `fetch_ephemeris.py` has been run.
 
