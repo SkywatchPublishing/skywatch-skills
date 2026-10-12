@@ -41,6 +41,44 @@ def test_davison_of_examples(tmp_path):
     assert not (tmp_path / "davison_aspects.md").exists()
 
 
+def _write_a(tmp_path, drop_requested=False, **meta):
+    a = json.loads(EXAMPLE.read_text())
+    a["meta"].update(meta)
+    if drop_requested:   # a chart written before meta.house_system_requested existed
+        a["meta"].pop("house_system_requested", None)
+    (tmp_path / "a.json").write_text(json.dumps(a))
+    return "a.json"
+
+
+def test_midpoint_default_prefers_requested_house_system(tmp_path):
+    a = _write_a(tmp_path, house_system="whole_sign", house_system_requested="koch")
+    proc = run("--a", a, "--b", str(PARTNER), cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    meta = json.loads((tmp_path / "composite.json").read_text())["meta"]
+    assert meta["house_system"] == "koch"
+    assert meta["house_system_requested"] == "koch"
+
+
+def test_midpoint_default_without_requested_field_uses_house_system(tmp_path):
+    a = _write_a(tmp_path, drop_requested=True, house_system="koch")
+    proc = run("--a", a, "--b", str(PARTNER), cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    meta = json.loads((tmp_path / "composite.json").read_text())["meta"]
+    assert meta["house_system"] == meta["house_system_requested"] == "koch"
+
+
+def test_davison_default_prefers_requested_and_houses_flag_overrides_it(tmp_path):
+    a = _write_a(tmp_path, house_system="whole_sign", house_system_requested="koch")
+    proc = run("--a", a, "--b", str(PARTNER), "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads((tmp_path / "davison.json").read_text())["meta"]["house_system"] == "koch"
+    proc = run("--a", a, "--b", str(PARTNER), "--method", "davison", "--houses", "equal", "--out", "eq.json",
+               cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    meta = json.loads((tmp_path / "eq.json").read_text())["meta"]
+    assert meta["house_system"] == meta["house_system_requested"] == "equal"
+
+
 def test_davison_antipodal_birthplaces_exits_1(tmp_path):
     a = json.loads(EXAMPLE.read_text()); b = json.loads(EXAMPLE.read_text())
     a["meta"]["location"] = {"name": "x", "latitude": 0.0, "longitude": 0.0, "geonameid": None}

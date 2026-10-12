@@ -66,6 +66,24 @@ def test_cast_davison_of_examples(tmp_path):
     assert c["angles"] is not None and c["houses"] is not None
 
 
+def test_cast_davison_prefers_requested_house_system(tmp_path):
+    # A polar natal chart records whole_sign as used but the system the user asked for as requested;
+    # the Davison midpoint (here ~52°N) can use the requested one.
+    a = json.loads(EXAMPLE.read_text()); b = json.loads(PARTNER.read_text())
+    a["meta"].update(house_system="whole_sign", house_system_requested="koch")
+    c = cp.cast_davison(NATAL, a, b, tmp_path / "davison.json")
+    assert c["meta"]["house_system"] == "koch"
+    assert c["meta"]["house_system_requested"] == "koch"
+
+
+def test_cast_davison_without_requested_field_uses_house_system(tmp_path):
+    a = json.loads(EXAMPLE.read_text()); b = json.loads(PARTNER.read_text())
+    a["meta"].pop("house_system_requested", None)   # a chart written before the field existed
+    a["meta"]["house_system"] = "koch"
+    c = cp.cast_davison(NATAL, a, b, tmp_path / "davison.json")
+    assert c["meta"]["house_system"] == "koch"
+
+
 def test_cast_davison_of_self_reproduces_sun(tmp_path):
     a = json.loads(EXAMPLE.read_text())
     c = cp.cast_davison(NATAL, a, a, tmp_path / "self.json")

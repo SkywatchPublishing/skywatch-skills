@@ -111,6 +111,42 @@ def test_precessed_rejected_for_sidereal_chart(tmp_path):
     assert not list(tmp_path.glob("sun_return_*.json"))
 
 
+def test_relocated_return_of_polar_chart_uses_requested_houses(tmp_path):
+    # Placidus fails at 69.65°N, so the natal chart falls back to whole-sign; a return relocated to
+    # Austin can use Placidus again and must, since that is what the user asked for.
+    cast = subprocess.run([sys.executable, "-I", str(NATAL), "--name", "Polar", "--date", "1990-06-15",
+                           "--time", "12:00", "--lat", "69.65", "--lon", "18.96", "--houses", "placidus",
+                           "--out", "polar.json"], cwd=tmp_path, capture_output=True, text=True)
+    assert cast.returncode == 0, cast.stderr
+    natal = json.loads((tmp_path / "polar.json").read_text())["meta"]
+    assert natal["house_system"] == "whole_sign" and "polar_fallback_whole_sign" in natal["flags"]
+    r = run("polar.json", "--start", "2027-01-01", "--end", "2027-12-31",
+            "--lat", "30.2672", "--lon", "-97.7431", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    c = json.loads(next(tmp_path.glob("sun_return_*.json")).read_text())
+    assert c["meta"]["house_system"] == "placidus"
+    assert "polar_fallback_whole_sign" not in c["meta"]["flags"]
+
+
+def test_settings_prefer_requested_house_system():
+    import returns as rt
+    meta = json.loads(EXAMPLE.read_text())["meta"]
+    meta.update(house_system="whole_sign", house_system_requested="placidus")
+    assert rt._settings_args(meta)[:2] == ["--houses", "placidus"]
+    meta.update(house_system=None, house_system_requested="koch")   # untimed natal chart
+    assert rt._settings_args(meta)[:2] == ["--houses", "koch"]
+
+
+def test_settings_without_requested_field_fall_back_to_house_system():
+    import returns as rt
+    meta = json.loads(EXAMPLE.read_text())["meta"]
+    meta.pop("house_system_requested", None)   # a chart written before the field existed
+    meta["house_system"] = "koch"
+    assert rt._settings_args(meta)[:2] == ["--houses", "koch"]
+    meta["house_system"] = None
+    assert rt._settings_args(meta)[:2] == ["--houses", "placidus"]
+
+
 COMPOSITE = Path(__file__).resolve().parents[2] / "composite" / "examples" / "composite.json"
 WHEEL = Path(__file__).resolve().parents[2] / "chart-wheel" / "scripts" / "chart_wheel.py"
 TRANSITS = Path(__file__).resolve().parents[2] / "transits-to-natal" / "scripts" / "transits.py"

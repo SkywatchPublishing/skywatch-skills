@@ -47,6 +47,16 @@ def test_untimed_side_drops_houses():
     assert {"time_unknown", "moon_uncertain"} <= set(c["meta"]["flags"])
 
 
+def test_midpoint_records_requested_house_system():
+    a = json.loads(EXAMPLE.read_text()); b = json.loads(PARTNER.read_text())
+    c = cp.midpoint_chart(a, b, reference=a["meta"]["location"], house_system="koch")
+    assert c["meta"]["house_system"] == c["meta"]["house_system_requested"] == "koch"
+    b["meta"]["time_unknown"] = True; b["angles"] = None; b["houses"] = None
+    c = cp.midpoint_chart(a, b, reference=a["meta"]["location"], house_system="koch")
+    assert c["meta"]["house_system"] is None
+    assert c["meta"]["house_system_requested"] == "koch"
+
+
 def test_pair_composite_houses_and_symmetry():
     a = json.loads(EXAMPLE.read_text()); b = json.loads(PARTNER.read_text())
     c = cp.midpoint_chart(a, b, reference=a["meta"]["location"], house_system="placidus")

@@ -22,6 +22,7 @@
     },
     "zodiac": "tropical",
     "house_system": "placidus",
+    "house_system_requested": "placidus",
     "node": "true",
     "flags": [],
     "source": {

@@ -81,7 +81,7 @@ python scripts/composite.py \
 |---|---|---|
 | `--method` | `midpoint` | `midpoint` or `davison` |
 | `--city`, `--geonameid`, `--lat --lon` | A's place | Reference place for midpoint houses; at most one of the three. `--tz` is accepted for symmetry with `natal-chart` but a midpoint composite has no clock time |
-| `--houses` | chart A's | `placidus`, `koch`, `equal`, `porphyry`, `whole_sign` |
+| `--houses` | chart A's requested system (`meta.house_system_requested`, else `meta.house_system`, else `placidus`) | `placidus`, `koch`, `equal`, `porphyry`, `whole_sign` |
 | `--out` | `composite.json` or `davison.json` | Output chart path; needs a file name, not just an extension (`--out .json` is refused) |
 | `--grid` | `<out stem>.md` | Markdown grid path; must differ from `--out`. For a Davison chart natal-chart writes the grid straight to this path |
 
@@ -153,7 +153,7 @@ A midpoint composite is not a moment in time: do not describe it as "the sky on"
 | Davison moment | Mean of the two `datetime_utc` instants, to the second | `davison_inputs()` |
 | Davison place | Great-circle midpoint of the two `meta.location` coordinates; exactly antipodal birthplaces have no unique midpoint and exit 1 | `great_circle_midpoint()` |
 | Davison timezone | `timezonefinder` at the midpoint; `UTC` with flag `davison_timezone_utc` when none | `cast_davison()` |
-| Davison cast | One `natal_chart.py` run with `--date`, `--time` to the second, `--lat/--lon/--tz`, A's house system (or `--houses`), zodiac and node, `--out` and `--grid` as given, so the aspect grid is natal-chart's own; `chart_type`, `derived_from` and `source.method` rewritten afterwards | `cast_davison()` |
+| Davison cast | One `natal_chart.py` run with `--date`, `--time` to the second, `--lat/--lon/--tz`, A's requested house system (`meta.house_system_requested`, else `meta.house_system`, so a polar whole-sign fallback is not carried over; or `--houses`), zodiac and node, `--out` and `--grid` as given, so the aspect grid is natal-chart's own; `chart_type`, `derived_from` and `source.method` rewritten afterwards | `cast_davison()` |
 | Reference place | `--lat/--lon` used directly; `--city`/`--geonameid` resolved by one untimed probe run of `natal-chart` on a fixed date (2000-01-01), since only the location is read; the probe also surfaces an ambiguous city as exit 2 | `resolve_reference()` |
 | Ephemeris | `ephe/` here, else the sibling `natal-chart/ephe/` (only the obliquity is computed here) | top of `scripts/composite.py` |
 | Dependencies | `pyswisseph`; `timezonefinder` and `natal-chart` for Davison; `natal-chart` for raw birth data and city references | |

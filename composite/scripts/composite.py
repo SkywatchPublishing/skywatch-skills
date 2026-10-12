@@ -169,6 +169,13 @@ def armc_from_mc(mc: float, eps: float) -> float:
 HOUSE_CODES = {"placidus": b"P", "koch": b"K", "equal": b"E", "porphyry": b"O", "whole_sign": b"W"}
 
 
+def requested_house_system(meta: dict) -> str:
+    """The house system the user asked for. ``house_system`` is the one used, which is whole-sign
+    after a polar fallback and null when untimed; charts written before ``house_system_requested``
+    existed fall back to it, then to Placidus."""
+    return meta.get("house_system_requested") or meta.get("house_system") or "placidus"
+
+
 def houses_from_mc(mc: float, latitude: float, eps: float, system: str) -> dict:
     """Cusps and angles for a given MC at a latitude; whole-sign fallback at polar latitudes."""
     flags = []
@@ -259,6 +266,7 @@ def midpoint_chart(a: dict, b: dict, reference: dict, house_system: str) -> dict
             "location": reference,
             "zodiac": ma.get("zodiac", "tropical"),
             "house_system": houses["system"] if houses else None,
+            "house_system_requested": house_system,
             "node": ma.get("node", "true"),
             "flags": flags,
             "source": {**(ma.get("source") or {}), "method": "midpoint"},
@@ -389,7 +397,7 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
     if not (_time_unknown(a) or _time_unknown(b)):
         cmd += ["--time", local.strftime("%H:%M:%S")]
     cmd += ["--lat", f"{lat:.6f}", "--lon", f"{lon:.6f}", "--tz", tz,
-            "--houses", ma.get("house_system") or "placidus",
+            "--houses", requested_house_system(ma),
             "--zodiac", ma.get("zodiac", "tropical"), "--node", ma.get("node", "true"),
             "--out", str(out), "--grid", str(grid)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
@@ -533,9 +541,9 @@ def main(argv=None) -> int:
                 else:
                     charts[side] = load_chart(getattr(args, side))
             a, b = charts["a"], charts["b"]
-            house_system = args.houses or a["meta"].get("house_system") or "placidus"
+            house_system = args.houses or requested_house_system(a["meta"])
             if args.method == "davison":
-                a["meta"]["house_system"] = house_system
+                a["meta"]["house_system_requested"] = house_system
                 chart = cast_davison(natal_script, a, b, out, grid_path)
             else:
                 reference = resolve_reference(args, a, natal_script, Path(tmp))

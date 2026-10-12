@@ -102,6 +102,7 @@ def build_chart(name: str, date: dt.date, time: dt.time | None, timezone: str, l
             "location": location,
             "zodiac": "sidereal_lahiri" if zodiac == "sidereal" else "tropical",
             "house_system": houses["system"] if houses else None,
+            "house_system_requested": house_system,
             "node": node,
             "flags": flags,
             "source": {"library": "pyswisseph", "version": swe.version, "ephemeris_files": eph.ephemeris_files_present()},

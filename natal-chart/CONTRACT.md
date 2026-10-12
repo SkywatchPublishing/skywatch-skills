@@ -40,6 +40,7 @@ refuses a chart whose `meta.timezone` is null (a midpoint `composite`), since it
 | `location` | object | `{name: string, latitude: float, longitude: float, geonameid: int or null}`. `geonameid` is `null` for `--lat/--lon` input; `name` is then `"lat, lon"`. |
 | `zodiac` | string | `"tropical"` or `"sidereal_lahiri"`. |
 | `house_system` | string or null | `placidus`, `koch`, `equal`, `porphyry` or `whole_sign` as actually used (after any polar fallback); `null` when `time_unknown`. |
+| `house_system_requested` | string | The house system the user asked for (`--houses`, default `placidus`), set even when `time_unknown` and whether or not a fallback happened; `house_system` is what was actually used, e.g. `whole_sign` after the polar fallback. A midpoint `composite` records the system it was asked to use. Skills that re-cast a chart (returns, Davison, the composite default) use this one. Added later: older files omit it, so read it with `.get` and fall back to `house_system`, then `placidus`. |
 | `node` | string | `"true"` or `"mean"`: which lunar node the `Node` body holds. |
 | `flags` | array of string | Caveats, see below. Empty array when none. |
 | `source` | object | `{library: "pyswisseph", version: string, ephemeris_files: bool}`. `ephemeris_files` false means the built-in Moshier ephemeris was used (slightly lower precision). Composite charts add `method`: `"midpoint"` or `"davison"`; absent on every other chart type. |
