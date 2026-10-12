@@ -1,16 +1,21 @@
 import csv
 import datetime as dt
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
 
+from zoneinfo import ZoneInfo
+
 import pytest
+import swisseph as swe
 import progressions as pg
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "progressions" / "scripts" / "progressions.py"
 EXAMPLE = ROOT / "natal-chart" / "examples" / "chart.json"
+EXAMPLES = ROOT / "progressions" / "examples"
 COMPOSITE = ROOT / "composite" / "examples" / "composite.json"
 DAVISON = ROOT / "composite" / "examples" / "davison.json"
 SOLAR_RETURN = ROOT / "returns" / "examples" / "sun_return_2027-06-15.json"
@@ -29,10 +34,28 @@ def write_chart(tmp_path, name, edit):
     return path
 
 
+# natal-chart's moon_range for the example birth cast without a time: 1990-06-15 in New York, so at noon, the
+# moment of the example chart.
+UNTIMED_MOON_RANGE = {"start": 340.9237, "end": 354.3375}
+
+
 def untimed(chart):
     chart["angles"] = None
     chart["houses"] = None
-    chart["meta"].update(time_unknown=True, house_system=None, flags=["time_unknown", "moon_uncertain"])
+    chart["meta"].update(time_unknown=True, house_system=None, flags=["time_unknown", "moon_uncertain"],
+                         moon_range=dict(UNTIMED_MOON_RANGE))
+
+
+def edge_moons(chart, day):
+    """The progressed Moon at local noon on `day` for a birth at 00:00 and at 23:59 on the natal birth date."""
+    tz = chart["meta"]["timezone"]
+    t, born = pg.target_jd(day, tz), dt.date.fromisoformat(chart["meta"]["datetime_local"][:10])
+    moons = []
+    for clock in (dt.time(0, 0), dt.time(23, 59)):
+        u = dt.datetime.combine(born, clock, tzinfo=ZoneInfo(tz)).astimezone(dt.timezone.utc)
+        e = swe.julday(u.year, u.month, u.day, u.hour + u.minute / 60)
+        moons.append(swe.calc_ut(e + (t - e) / pg.YEAR, swe.MOON, swe.FLG_SWIEPH)[0][0])
+    return moons
 
 
 def read_csv(path):
@@ -42,9 +65,10 @@ def read_csv(path):
 
 # --- chart mode ---------------------------------------------------------------------------------
 
+# Without the ephemeris files a progressed chart has no Chiron and also prints Note: chiron_unavailable.
 @pytest.mark.parametrize("extra, chart_type", [
-    ([], "secondary_progressed"),
-    (["--method", "secondary"], "secondary_progressed"),
+    pytest.param([], "secondary_progressed", marks=pytest.mark.needs_ephemeris),
+    pytest.param(["--method", "secondary"], "secondary_progressed", marks=pytest.mark.needs_ephemeris),
     (["--method", "solar-arc"], "solar_arc_directed"),
 ])
 def test_chart_mode_defaults(tmp_path, extra, chart_type):
@@ -65,6 +89,7 @@ def test_chart_mode_defaults(tmp_path, extra, chart_type):
     assert text.startswith("| | Sun |") and "| MC |" in text
 
 
+@pytest.mark.needs_ephemeris
 def test_angles_naibod_recorded(tmp_path):
     proc = run(EXAMPLE, "--date", "2027-06-15", "--angles", "naibod", "--out", "n.json", cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
@@ -91,6 +116,7 @@ def test_grid_equal_to_out_exits_1(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
+@pytest.mark.needs_ephemeris
 def test_untimed_chart_prints_a_note_per_flag(tmp_path):
     path = write_chart(tmp_path, "u.json", untimed)
     proc = run(path, "--date", "2027-06-15", "--angles", "naibod", "--out", "p.json", cwd=tmp_path)
@@ -100,6 +126,24 @@ def test_untimed_chart_prints_a_note_per_flag(tmp_path):
     assert len(lines) == 4 and lines[3].startswith("Note: --angles ignored")
     chart = json.loads((tmp_path / "p.json").read_text(encoding="utf-8"))
     assert chart["angles"] is None and chart["meta"]["progression"]["angles_method"] is None
+
+
+def test_untimed_charts_move_the_moon_range(tmp_path):
+    path = write_chart(tmp_path, "u.json", untimed)
+    for method in ("secondary", "solar-arc"):
+        proc = run(path, "--date", "2027-06-15", "--method", method, "--out", f"{method}.json", cwd=tmp_path)
+        assert proc.returncode == 0, proc.stderr
+    progressed, directed = (json.loads((tmp_path / f"{m}.json").read_text(encoding="utf-8"))["meta"]
+                            for m in ("secondary", "solar-arc"))
+    # Progressed: recomputed for a birth at each edge of the birth day. Directed: the natal range plus the arc.
+    for got, want in zip((progressed["moon_range"]["start"], progressed["moon_range"]["end"]),
+                         edge_moons(json.loads(path.read_text()), dt.date(2027, 6, 15))):
+        assert abs(pg.wrapped(got - want)) < 1e-4
+    arc = directed["progression"]["solar_arc"]
+    assert arc > 30
+    for k in ("start", "end"):
+        assert abs(pg.wrapped(progressed["moon_range"][k] - UNTIMED_MOON_RANGE[k])) > 1
+        assert abs(pg.wrapped(directed["moon_range"][k] - (UNTIMED_MOON_RANGE[k] + arc))) < 1e-3
 
 
 def test_date_before_birth_exits_1(tmp_path):
@@ -301,26 +345,26 @@ def test_unreadable_chart_exits_1(tmp_path, content):
 
 # --- timeline mode ------------------------------------------------------------------------------
 
-def test_timeline_csv(tmp_path):
+@pytest.mark.needs_ephemeris          # without Chiron the run also prints Note: chiron_unavailable
+def test_timeline_csv(tmp_path, rows):
+    # `rows` is the library's timeline for the same chart and range (conftest.py).
     proc = run(EXAMPLE, "--timeline", "--start", "2027-01-01", "--end", "2036-12-31", cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
     out = tmp_path / "progressions_timeline.csv"
     assert out.read_text(encoding="utf-8").splitlines()[0] == HEADER
-    rows = read_csv(out)
-    assert len(rows) >= 100
-    assert proc.stdout.splitlines() == [f"Wrote {len(rows)} events to progressions_timeline.csv"]
-    assert {r["Technique"] for r in rows} == {"secondary", "solar arc"}
-    assert {r["Event"] for r in rows} >= {"aspect", "ingress"}
-    assert {r["Uncertain"] for r in rows} == {""}
-    for r in rows:
+    written = read_csv(out)
+    assert len(written) >= 100
+    assert proc.stdout.splitlines() == [f"Wrote {len(written)} events to progressions_timeline.csv"]
+    assert {r["Technique"] for r in written} == {"secondary", "solar arc"}
+    assert {r["Event"] for r in written} >= {"aspect", "ingress"}
+    assert {r["Uncertain"] for r in written} == {""}
+    for r in written:
         dt.date.fromisoformat(r["Exact"])
         for k in ("Orb from", "Orb to"):
             assert r[k] == "" or dt.date.fromisoformat(r[k])
-    assert all(r["Orb from"] == r["Orb to"] == "" for r in rows if r["Event"] != "aspect")
-    natal = json.loads(EXAMPLE.read_text())
-    lib = pg.timeline(natal, dt.date(2027, 1, 1), dt.date(2036, 12, 31))
-    assert [(r["Exact"], r["Moving"], r["Target"]) for r in rows] == \
-        [(r["exact"].isoformat(), r["moving"], r["target"]) for r in lib]
+    assert all(r["Orb from"] == r["Orb to"] == "" for r in written if r["Event"] != "aspect")
+    assert [(r["Exact"], r["Moving"], r["Target"]) for r in written] == \
+        [(r["exact"].isoformat(), r["moving"], r["target"]) for r in rows]
 
 
 def test_end_before_start_exits_1(tmp_path):
@@ -330,6 +374,7 @@ def test_end_before_start_exits_1(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
+@pytest.mark.needs_ephemeris
 def test_start_before_birth_is_clamped(tmp_path):
     proc = run(EXAMPLE, "--timeline", "--start", "1980-01-01", "--end", "1992-12-31", "--out", "early.csv", cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
@@ -355,6 +400,7 @@ def test_range_over_120_years_exits_1(tmp_path):
     assert not list(tmp_path.iterdir())
 
 
+@pytest.mark.needs_ephemeris
 def test_untimed_timeline_marks_uncertain_and_notes(tmp_path):
     path = write_chart(tmp_path, "u.json", untimed)
     proc = run(path, "--timeline", "--start", "2027-01-01", "--end", "2030-12-31", cwd=tmp_path)
@@ -379,6 +425,32 @@ def test_main_passes_clamped_start_and_angles(tmp_path, monkeypatch, capsys):
                     (dt.date(2027, 1, 1), dt.date(2027, 12, 31), "naibod")]
     assert (tmp_path / "progressions_timeline.csv").read_text(encoding="utf-8").splitlines() == [HEADER]
     assert "Wrote 0 events to progressions_timeline.csv" in capsys.readouterr().out
+
+
+# --- committed examples -----------------------------------------------------------------------------
+
+def readme_commands():
+    """The README's "Examples are produced by" commands, as argument lists after the script path."""
+    lines = (ROOT / "progressions" / "README.md").read_text(encoding="utf-8").splitlines()
+    return [shlex.split(line)[2:] for line in lines if line.startswith("python progressions/scripts/progressions.py ")]
+
+
+@pytest.mark.needs_ephemeris
+def test_readme_commands_reproduce_the_committed_examples(tmp_path, capsys):
+    commands = readme_commands()
+    assert len(commands) == 3
+    for args in commands:
+        # The README runs from the repository root and writes into progressions/examples; write to tmp_path.
+        args = [str(ROOT / a) if a.endswith("chart.json") else a for a in args]
+        i = args.index("--out") + 1
+        assert args[i].startswith("progressions/examples/")
+        args[i] = str(tmp_path / Path(args[i]).name)
+        assert pg.main(args) == 0
+    assert "Wrote 132 events to" in capsys.readouterr().out
+    written = sorted(p.name for p in tmp_path.iterdir())
+    assert written == sorted(p.name for p in EXAMPLES.iterdir()) and len(written) == 5
+    for name in written:
+        assert (tmp_path / name).read_bytes() == (EXAMPLES / name).read_bytes(), name
 
 
 # --- round trip through the other chart skills ----------------------------------------------------

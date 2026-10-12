@@ -21,6 +21,7 @@ def at(natal, y, m, d):
     return pg.target_jd(dt.date(y, m, d), natal["meta"]["timezone"])
 
 
+@pytest.mark.needs_ephemeris
 def test_progressed_chart_example(natal):
     p = pg.progressed_chart(natal, at(natal, 2027, 6, 15))
     assert p["schema_version"] == 1
@@ -67,6 +68,7 @@ def test_solar_arc_angles_make_progressed_mc_equal_directed_mc(natal):
     assert pg.progressed_chart(natal, t)["angles"]["mc"] == pytest.approx(pg.directed_chart(natal, t)["angles"]["mc"], abs=1e-3)
 
 
+@pytest.mark.needs_ephemeris          # the example's natal Chiron has no progressed counterpart without the files
 def test_identity_at_birth(natal):
     bj = natal["meta"]["julian_day_ut"]
     p, d = pg.progressed_chart(natal, bj), pg.directed_chart(natal, bj)
@@ -78,10 +80,21 @@ def test_identity_at_birth(natal):
 
 def test_untimed_natal(natal):
     natal["angles"] = None; natal["houses"] = None; natal["meta"]["time_unknown"] = True
-    for chart in (pg.progressed_chart(natal, at(natal, 2027, 6, 15)), pg.directed_chart(natal, at(natal, 2027, 6, 15))):
+    # natal-chart's moon_range for this birth cast without a time (at noon, the example's moment).
+    natal["meta"]["moon_range"] = {"start": 340.9237, "end": 354.3375}
+    t = at(natal, 2027, 6, 15)
+    p, d = pg.progressed_chart(natal, t), pg.directed_chart(natal, t)
+    for chart in (p, d):
         assert chart["angles"] is None and chart["houses"] is None
         assert chart["meta"]["progression"]["angles_method"] is None
         assert all(b["house"] is None for b in chart["bodies"].values())
+    # The range moves with the chart: recomputed for a progressed chart, the natal range plus the arc directed.
+    assert p["meta"]["moon_range"]["start"] == pytest.approx(edge_moon(natal, 0, 0, t), abs=1e-4)
+    assert p["meta"]["moon_range"]["end"] == pytest.approx(edge_moon(natal, 23, 59, t), abs=1e-4)
+    arc = d["meta"]["progression"]["solar_arc"]
+    for k in ("start", "end"):
+        assert abs(pg.wrapped(p["meta"]["moon_range"][k] - natal["meta"]["moon_range"][k])) > 1
+        assert abs(pg.wrapped(d["meta"]["moon_range"][k] - (natal["meta"]["moon_range"][k] + arc))) < 1e-3
 
 
 def edge_moon(natal, hour, minute, tjd):
@@ -150,9 +163,8 @@ def test_missing_chiron_stays_missing(natal):
     assert "Chiron" not in pg.progressed_chart(natal, at(natal, 2027, 6, 15))["bodies"]
 
 
+@pytest.mark.needs_ephemeris
 def test_charts_record_the_ephemeris_used(natal):
-    if not pg.ephemeris_files_present():
-        pytest.skip("needs the Swiss Ephemeris files (natal-chart/scripts/fetch_ephemeris.py)")
     t = at(natal, 2027, 6, 15)
     for chart in (pg.progressed_chart(natal, t), pg.directed_chart(natal, t)):
         assert chart["meta"]["source"]["ephemeris_files"] is True

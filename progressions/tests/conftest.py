@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import subprocess
 import sys
@@ -9,7 +10,29 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-NATAL_SCRIPT = Path(__file__).resolve().parents[2] / "natal-chart" / "scripts" / "natal_chart.py"
+import progressions as pg  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[2]
+NATAL_SCRIPT = ROOT / "natal-chart" / "scripts" / "natal_chart.py"
+EXAMPLE = ROOT / "natal-chart" / "examples" / "chart.json"
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "needs_ephemeris: needs the Swiss Ephemeris files (Chiron, or figures computed with them)")
+
+
+def pytest_runtest_setup(item):
+    if item.get_closest_marker("needs_ephemeris") and not pg.ephemeris_files_present():
+        pytest.skip("needs the Swiss Ephemeris files, in progressions/ephe or natal-chart/ephe; "
+                    "run python natal-chart/scripts/fetch_ephemeris.py")
+
+
+@pytest.fixture(scope="session")
+def rows():
+    """The example chart's 2027-2036 timeline (the README example's range), computed once for the session.
+    Shared by test_timeline.py and test_cli.py; treat the rows as read-only."""
+    return pg.timeline(json.loads(EXAMPLE.read_text()), dt.date(2027, 1, 1), dt.date(2036, 12, 31))
 
 
 @pytest.fixture(scope="session")
@@ -34,7 +57,6 @@ def no_ephemeris(tmp_path_factory, monkeypatch):
     """Point progressions at an empty folder, as on a machine without the Swiss Ephemeris files: pyswisseph
     falls back to its built-in Moshier ephemeris, which has no Chiron."""
     import swisseph as swe
-    import progressions as pg
     empty, original = tmp_path_factory.mktemp("no_ephe"), pg.EPHE_DIR
     monkeypatch.setattr(pg, "EPHE_DIR", empty)
     swe.set_ephe_path(str(empty))

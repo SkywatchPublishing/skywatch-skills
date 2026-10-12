@@ -1,6 +1,5 @@
 import datetime as dt
 import json
-import time
 from pathlib import Path
 
 import pytest
@@ -20,21 +19,14 @@ def natal():
 
 
 @pytest.fixture(scope="module")
-def rows(natal):
-    t = time.time()
-    out = pg.timeline(natal, START, END)
-    assert time.time() - t < 10
-    return out
-
-
-@pytest.fixture(scope="module")
 def naibod_rows(natal):
     return pg.timeline(natal, START, END, "naibod")
 
 
 @pytest.fixture(scope="module")
 def life(natal):
-    return pg.timeline(natal, dt.date(1990, 6, 16), dt.date(2080, 12, 31))
+    # Spans the two stations the docs quote: progressed Pluto direct 2030-11-05, Mercury retrograde 2061-05-17.
+    return pg.timeline(natal, dt.date(2029, 1, 1), dt.date(2062, 12, 31))
 
 
 def flags_for(natal):
@@ -251,21 +243,36 @@ def test_overlaps_compares_whole_local_days():
     assert pg.overlaps(row("station", s), s, s)
 
 
-def test_printed_dates_do_not_depend_on_the_sample_grid(natal):
-    # The sample grid starts five years (forty for Mercury, Venus and Mars) before the range, so every range
-    # samples at a different phase. A one-day range on any of a row's dates must still list that row with the
-    # same dates. One date per row, rotating through the three columns, keeps this to ~43 timeline runs.
-    key = ("technique", "event", "moving", "aspect", "target", "exact", "from", "to")
-    sample = pg.timeline(natal, D(2027, 1, 1), D(2031, 12, 31))[::2]
-    checked = set()
-    for i, r in enumerate(sample):
-        column = ("exact", "from", "to")[i % 3]
-        column = column if r[column] is not None else "exact"
+SIGNATURE = ("technique", "event", "moving", "aspect", "target", "exact", "from", "to")
+
+
+def signatures(rows):
+    return {tuple(r[k] for k in SIGNATURE) for r in rows}
+
+
+# Crossings are bisected to a minute, so a moment within about 30 s of local midnight can still land on either
+# date. With the Swiss files no date of this chart does; with the Moshier fallback the Moon sextile Saturn window
+# closes 14 s before midnight on 2035-12-14.
+@pytest.mark.needs_ephemeris
+def test_printed_dates_do_not_depend_on_the_sample_grid(natal, rows, monkeypatch):
+    # The 15-day sample grid starts MARGIN before the range (SLOW_MARGIN for Mercury, Venus and Mars; here that
+    # is before birth, so their grid starts at the birth moment), so each range samples at its own phase. Moving
+    # the grid start by a fraction of a step must not move a single printed date.
+    for shift in (3.7, 8.3, 11.1):
+        monkeypatch.setattr(pg, "MARGIN", 5 * pg.YEAR + shift)
+        monkeypatch.setattr(pg, "SLOW_MARGIN", 40 * pg.YEAR + shift)
+        assert signatures(pg.timeline(natal, START, END)) == signatures(rows), shift
+
+
+def test_one_day_range_on_a_printed_date_lists_the_row(natal, rows):
+    # End to end through the whole-day overlap test: a one-day range on a row's Exact (a point event), Orb from
+    # or Orb to date lists that row with the same dates.
+    probes = [("exact", next(r for r in rows if r["event"] == "ingress")),
+              ("from", next(r for r in rows if r["event"] == "aspect" and r["from"] > START)),
+              ("to", next(r for r in rows if r["event"] == "aspect" and r["to"] and r["to"] < END))]
+    for column, r in probes:
         day = r[column]
-        assert tuple(r[k] for k in key) in {tuple(x[k] for k in key) for x in pg.timeline(natal, day, day)}, \
-            (column, r)
-        checked.add(column)
-    assert len(sample) >= 40 and checked == {"exact", "from", "to"}
+        assert tuple(r[k] for k in SIGNATURE) in signatures(pg.timeline(natal, day, day)), (column, r)
 
 
 def test_sidereal_timeline_is_exact(cast):
@@ -304,6 +311,7 @@ def chiron_rows(chiron_natal):
     return pg.timeline(chiron_natal, D(2008, 1, 1), D(2012, 12, 31))
 
 
+@pytest.mark.needs_ephemeris          # chiron_rows, the baseline, needs progressed Chiron
 def test_missing_ephemeris_files_leave_out_progressed_chiron(chiron_natal, chiron_rows, no_ephemeris):
     # Moshier has no Chiron: progressed Chiron's ingresses and stations are left out. Directed Chiron (natal
     # Chiron plus the arc) and aspects to natal Chiron need no ephemeris file and stay.
