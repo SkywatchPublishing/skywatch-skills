@@ -109,7 +109,7 @@ Every row is the sky at 12:00 local time in the chart's timezone, once a day, th
 
 - **Slow bodies (default).** Jupiter moves well under a degree a day and the outer planets far less, so a transit within a 1° orb appears on many consecutive rows: Jupiter for a week or two, Saturn for weeks, Uranus through Pluto for months (and three times across a retrograde loop). The day the orb is smallest is the day of exactness to within a day. This is the reliable part of the output.
 - **Fast bodies (`--fast`).** The Sun moves about 1° a day and Mercury, Venus, and Mars can move more, so a transit may show on one or two rows only, or slip between two noon samples and be missed entirely on a fast day. Over a long range these bodies also produce a great many rows. Use `--fast` for a month or a few weeks, not a year.
-- **Moon (`--moon`).** The Moon moves about 13° a day, so a single noon sample with a 1° orb catches only the Moon aspects that happen to be near exact at noon, roughly one in thirteen, and the orb on those rows is the noon orb, not the moment of exactness. It is off by default because at one sample a day it is noise. When the user wants Moon transits with exact times, use the `astrology-ephemeris` skill instead, which scans the Moon in 10-minute steps.
+- **Moon (`--moon`).** The Moon moves about 13° a day, so a single noon sample with a 1° orb catches only the Moon aspects that happen to be near exact at noon, roughly one in thirteen, and the orb on those rows is the noon orb, not the moment of exactness. It is off by default because at one sample a day it is noise. When the user wants Moon transits with exact times, use the `astrology-ephemeris` skill instead, which lists every aspect the Moon perfects each day with its exact time.
 
 ---
 
