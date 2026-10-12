@@ -28,8 +28,8 @@ Facts verified while designing, which the tests rely on (example chart: 1990-06-
 
 - Target 2027-06-15 (local noon): age 37.0001 years, true solar arc 35.2991°, progressed Sun 29°35' Cancer, progressed Moon 6°48' Leo.
 - Solar-arc angles: progressed MC 106.525 = natal MC 71.226 + arc. Naibod angles: MC 104.868, 1.656° behind.
-- Target = birth reproduces the natal chart: bodies exactly, Ascendant within 3e-5°; a sidereal chart's Ascendant within 5e-4°.
-- Timeline 2027-2036: 135 rows in 0.7 s with solar-arc angles (143 with Naibod); worst secondary exact-date error 0.019°; progressed Moon sign ingresses 2.29, 2.43, 2.52 years apart; a lifetime scan finds progressed Pluto turning direct on 2030-11-05 and Mercury turning retrograde on 2061-05-17.
+- Target = birth reproduces the natal chart: bodies exactly, Ascendant and cusps within 4e-5°, tropical or sidereal.
+- Timeline 2027-2036: 135 rows in about 1 s with solar-arc angles (143 with Naibod); worst secondary exact-date error 0.019°; progressed Moon sign ingresses 2.29, 2.43, 2.52 years apart; a lifetime scan finds progressed Pluto turning direct on 2030-11-05 and Mercury turning retrograde on 2061-05-17.
 
 Commit after every task with the given imperative message.
 
@@ -199,19 +199,26 @@ HOUSE_CODES = {"placidus": b"P", "koch": b"K", "equal": b"E", "porphyry": b"O", 
 
 
 def wrapped(x: float) -> float:
-    """x reduced to (-180, 180]."""
+    """x reduced to [-180, 180): the signed difference of two longitudes."""
     return ((x + 180.0) % 360.0) - 180.0
+
+
+def local_jd(date: dt.date, time: dt.time, tz: str) -> float:
+    """Julian day (UT) of a local wall-clock time on `date` in `tz`."""
+    u = dt.datetime.combine(date, time, tzinfo=ZoneInfo(tz)).astimezone(dt.timezone.utc)
+    return swe.julday(u.year, u.month, u.day, u.hour + u.minute / 60 + u.second / 3600)
 
 
 def target_jd(date: dt.date, tz: str) -> float:
     """Julian day (UT) of local noon on `date` in `tz`."""
-    u = dt.datetime.combine(date, dt.time(12), tzinfo=ZoneInfo(tz)).astimezone(dt.timezone.utc)
-    return swe.julday(u.year, u.month, u.day, u.hour + u.minute / 60 + u.second / 3600)
+    return local_jd(date, dt.time(12), tz)
 
 
 def jd_to_local_date(jd: float, tz: str) -> dt.date:
+    """Local date of a Julian day (UT). The time is rounded to the second first, so float error in revjul's
+    hour cannot push an exact local midnight back into the previous day."""
     y, m, d, h = swe.revjul(jd)
-    u = dt.datetime(y, m, d, tzinfo=dt.timezone.utc) + dt.timedelta(hours=h)
+    u = dt.datetime(y, m, d, tzinfo=dt.timezone.utc) + dt.timedelta(seconds=round(h * 3600))
     return u.astimezone(ZoneInfo(tz)).date()
 
 
@@ -245,9 +252,12 @@ def sun_lon(jd: float, zodiac: str) -> float:
     return swe.calc_ut(jd, swe.SUN, _flags(zodiac))[0][0]
 
 
-def solar_arc(birth_jd: float, tjd: float, zodiac: str = "tropical") -> float:
-    """True solar arc: progressed Sun minus natal Sun, in [0, 360)."""
-    return (sun_lon(progressed_jd(birth_jd, tjd), zodiac) - sun_lon(birth_jd, zodiac)) % 360
+def solar_arc(birth_jd: float, tjd: float, zodiac: str = "tropical", natal_sun: float | None = None) -> float:
+    """True solar arc: progressed Sun minus natal Sun, in [0, 360). Callers that need many arcs pass
+    `natal_sun`, sun_lon(birth_jd, zodiac), so it is not recomputed each time."""
+    if natal_sun is None:
+        natal_sun = sun_lon(birth_jd, zodiac)
+    return (sun_lon(progressed_jd(birth_jd, tjd), zodiac) - natal_sun) % 360
 
 
 def obliquity(jd: float) -> float:
@@ -255,7 +265,12 @@ def obliquity(jd: float) -> float:
 
 
 def ayanamsa(jd: float, zodiac: str) -> float:
-    return swe.get_ayanamsa_ut(jd) if str(zodiac).startswith("sidereal") else 0.0
+    """Lahiri ayanamsa with nutation, the value calc_ut and houses_ex subtract under FLG_SIDEREAL, so it
+    matches natal-chart's sidereal output (get_ayanamsa_ut is the mean value, up to ~0.005° off); 0 for tropical."""
+    if not str(zodiac).startswith("sidereal"):
+        return 0.0
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    return swe.get_ayanamsa_ex_ut(jd, swe.FLG_SWIEPH)[1]
 
 
 def armc_from_mc(mc: float, eps: float) -> float:
@@ -263,40 +278,61 @@ def armc_from_mc(mc: float, eps: float) -> float:
     return math.degrees(math.atan2(math.sin(m) * math.cos(e), math.cos(m))) % 360.0
 
 
-def houses_from_armc(armc: float, latitude: float, eps: float, system: str) -> dict:
-    """Cusps and angles for an ARMC at a latitude; whole-sign fallback at polar latitudes."""
+def whole_sign_cusps(ascendant: float) -> list[float]:
+    """The 12 sign boundaries, starting with the sign the Ascendant is in."""
+    start = ascendant // 30 * 30
+    return [(start + 30 * i) % 360 for i in range(12)]
+
+
+def houses_from_armc(armc: float, latitude: float, eps: float, system: str, shift: float = 0.0) -> dict:
+    """Cusps and angles for an ARMC at a latitude; whole-sign fallback at polar latitudes.
+
+    houses_armc is tropical: a sidereal chart passes its ayanamsa as `shift`, subtracted from the angles and
+    cusps. Whole-sign cusps are then rebuilt from the shifted Ascendant's sign, since shifted tropical sign
+    boundaries are not sidereal ones.
+    """
     flags = []
     try:
         cusps, ascmc = swe.houses_armc(armc, latitude, eps, HOUSE_CODES[system])
     except swe.Error:
         cusps, ascmc = swe.houses_armc(armc, latitude, eps, HOUSE_CODES["whole_sign"])
         system, flags = "whole_sign", ["polar_fallback_whole_sign"]
-    asc, mc = ascmc[0] % 360, ascmc[1] % 360
-    return {"system": system, "cusps": [c % 360 for c in cusps[:12]],
+    asc, mc = (ascmc[0] - shift) % 360, (ascmc[1] - shift) % 360
+    cusps = whole_sign_cusps(asc) if system == "whole_sign" else [(c - shift) % 360 for c in cusps[:12]]
+    return {"system": system, "cusps": cusps,
             "angles": {"ascendant": asc, "mc": mc, "descendant": (asc + 180) % 360, "ic": (mc + 180) % 360},
             "flags": flags}
+
+
+def house_mover(natal: dict, method: str):
+    """A function tjd -> progressed houses (see moved_houses), with the natal constants worked out once."""
+    meta = natal["meta"]
+    zodiac, birth_jd = meta["zodiac"], meta["julian_day_ut"]
+    lat, system = meta["location"]["latitude"], natal["houses"]["system"]
+    eps = obliquity(birth_jd)
+    natal_mc_trop = (natal["angles"]["mc"] + ayanamsa(birth_jd, zodiac)) % 360
+    natal_armc = armc_from_mc(natal_mc_trop, eps)
+    natal_sun = sun_lon(birth_jd, "tropical")
+
+    def at(tjd: float) -> dict:
+        if method == "naibod":
+            armc = (natal_armc + NAIBOD * (tjd - birth_jd) / YEAR) % 360
+        else:
+            armc = armc_from_mc((natal_mc_trop + solar_arc(birth_jd, tjd, "tropical", natal_sun)) % 360, eps)
+        return houses_from_armc(armc, lat, eps, system, ayanamsa(progressed_jd(birth_jd, tjd), zodiac))
+    return at
 
 
 def moved_houses(natal: dict, tjd: float, method: str) -> dict:
     """Progressed houses at the birth latitude, in the natal zodiac.
 
     'solar-arc': MC = natal MC + true solar arc. 'naibod': natal ARMC + 0.9856473° per year.
-    houses_armc has no sidereal mode, so work in tropical and shift back by the birth ayanamsa.
+    houses_armc has no sidereal mode, so the natal MC goes to tropical with the birth ayanamsa, the houses
+    are worked out in tropical (with the tropical arc), and they come back to sidereal with the ayanamsa at
+    the progressed instant, the moment the progressed bodies are computed for. A sidereal solar-arc MC is
+    therefore natal MC + sidereal arc, as for the bodies.
     """
-    meta = natal["meta"]
-    zodiac, birth_jd = meta["zodiac"], meta["julian_day_ut"]
-    lat = meta["location"]["latitude"]
-    eps = obliquity(birth_jd)
-    shift = ayanamsa(birth_jd, zodiac)
-    natal_mc_trop = (natal["angles"]["mc"] + shift) % 360
-    if method == "naibod":
-        armc = (armc_from_mc(natal_mc_trop, eps) + NAIBOD * (tjd - birth_jd) / YEAR) % 360
-    else:
-        armc = armc_from_mc((natal_mc_trop + solar_arc(birth_jd, tjd, zodiac)) % 360, eps)
-    h = houses_from_armc(armc, lat, eps, natal["houses"]["system"])
-    h["cusps"] = [(c - shift) % 360 for c in h["cusps"]]
-    h["angles"] = {k: (v - shift) % 360 for k, v in h["angles"].items()}
-    return h
+    return house_mover(natal, method)(tjd)
 ```
 
 **Step 4: Run** → 7 passed. **Step 5: Commit** `git commit -m "Add progression time key, solar arc and moved angles"`
@@ -471,11 +507,28 @@ def _body(lon, speed, lat, cusps):
             "house": house_of(lon, cusps) if cusps else None, "latitude": round(lat, 4)}
 
 
+def birth_date(natal: dict) -> dt.date:
+    meta = natal["meta"]
+    return jd_to_local_date(meta["julian_day_ut"], meta["timezone"])
+
+
+def day_edges(natal: dict) -> tuple[float, float]:
+    """Julian days of 00:00 and 23:59 local on the birth date: the span natal-chart's moon_range covers."""
+    day, tz = birth_date(natal), natal["meta"]["timezone"]
+    return local_jd(day, dt.time(0, 0), tz), local_jd(day, dt.time(23, 59), tz)
+
+
+def _moon_range(start: float, end: float) -> dict:
+    return {"start": round(start % 360, 4), "end": round(end % 360, 4)}
+
+
 def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd: float, arc: float,
-              angles_method: str | None) -> dict:
-    """raw: name -> (longitude, speed or None, latitude). houses: moved houses or None (untimed)."""
+              angles_method: str | None, moon_range: dict | None) -> dict:
+    """raw: name -> (longitude, speed or None, latitude). houses: moved houses or None (untimed).
+    The natal meta is copied whole (keeping keys such as house_system_requested); the moving parts are replaced."""
     import copy
     meta = copy.deepcopy(natal["meta"])
+    meta["moon_range"] = moon_range
     cusps = houses["cusps"] if houses else None
     bodies = {n: _body(lon, sp, lat, cusps) for n, (lon, sp, lat) in raw.items()}
     points = {n: {"longitude": b["longitude"], "speed": b["speed"]} for n, b in bodies.items()}
@@ -497,27 +550,41 @@ def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd:
 
 
 def progressed_chart(natal: dict, tjd: float, angles_method: str = "solar-arc") -> dict:
-    """Secondary progressed chart for target Julian day `tjd`."""
+    """Secondary progressed chart for target Julian day `tjd` (a target before the birth moment is the birth)."""
     meta = natal["meta"]
     bj = meta["julian_day_ut"]
+    tjd = max(tjd, bj)
     pos = body_positions(progressed_jd(bj, tjd), meta["zodiac"], meta.get("node", "true"))
     raw = {n: (p["longitude"], p["speed"], p["latitude"]) for n, p in pos.items() if n in natal["bodies"]}
     houses = moved_houses(natal, tjd, angles_method) if natal.get("angles") else None
+    moon = None
+    if meta.get("moon_range") is not None:
+        # Untimed: the progressed Moon for a birth at each edge of the birth day, each progressed by its own age.
+        moon = _moon_range(*(swe.calc_ut(progressed_jd(e, tjd), swe.MOON, _flags(meta["zodiac"]))[0][0]
+                             for e in day_edges(natal)))
     return _assemble(natal, raw, houses, "secondary_progressed", tjd, solar_arc(bj, tjd, meta["zodiac"]),
-                     angles_method if houses else None)
+                     angles_method if houses else None, moon)
 
 
 def directed_chart(natal: dict, tjd: float) -> dict:
-    """Solar arc directed chart: every body, angle and cusp moves by the true solar arc."""
+    """Solar arc directed chart: every body, angle and cusp moves by the true solar arc (a target before the
+    birth moment is the birth). Whole-sign cusps stay on sign boundaries, from the directed Ascendant's sign."""
     meta = natal["meta"]
-    arc = solar_arc(meta["julian_day_ut"], tjd, meta["zodiac"])
+    bj = meta["julian_day_ut"]
+    tjd = max(tjd, bj)
+    arc = solar_arc(bj, tjd, meta["zodiac"])
     raw = {n: ((b["longitude"] + arc) % 360, None, b.get("latitude", 0.0)) for n, b in natal["bodies"].items()}
     houses = None
     if natal.get("angles"):
-        houses = {"system": natal["houses"]["system"],
-                  "cusps": [(c + arc) % 360 for c in natal["houses"]["cusps"]],
-                  "angles": {k: (v + arc) % 360 for k, v in natal["angles"].items()}, "flags": []}
-    return _assemble(natal, raw, houses, "solar_arc_directed", tjd, arc, None)
+        angles = {k: (v + arc) % 360 for k, v in natal["angles"].items()}
+        system = natal["houses"]["system"]
+        cusps = (whole_sign_cusps(angles["ascendant"]) if system == "whole_sign"
+                 else [(c + arc) % 360 for c in natal["houses"]["cusps"]])
+        houses = {"system": system, "cusps": cusps, "angles": angles, "flags": []}
+    moon = None
+    if meta.get("moon_range") is not None:
+        moon = _moon_range(meta["moon_range"]["start"] + arc, meta["moon_range"]["end"] + arc)
+    return _assemble(natal, raw, houses, "solar_arc_directed", tjd, arc, None, moon)
 ```
 
 **Step 4: Run** → all pass. **Step 5: Commit** `git commit -m "Assemble progressed and directed charts"`
@@ -596,8 +663,8 @@ def test_mc_listed_once_with_solar_arc_angles(natal, rows):
 def test_lifetime_stations(natal):
     life = pg.timeline(natal, dt.date(1990, 6, 16), dt.date(2080, 12, 31))
     stations = [(r["exact"], r["moving"], r["detail"]) for r in life if r["event"] == "station"]
-    assert any(m == "Pluto" and d == "turns direct" and e.year == 2030 for e, m, d in stations)
-    assert any(m == "Mercury" and d == "turns retrograde" and e.year == 2061 for e, m, d in stations)
+    assert any(m == "Pluto" and d.startswith("turns direct at ") and e.year == 2030 for e, m, d in stations)
+    assert any(m == "Mercury" and d.startswith("turns retrograde at ") and e.year == 2061 for e, m, d in stations)
 
 
 def test_untimed_chart(natal):
@@ -606,7 +673,8 @@ def test_untimed_chart(natal):
     rows = pg.timeline(u, START, END)
     assert not [r for r in rows if "Ascendant" in (r["moving"], r["target"]) or "MC" in (r["moving"], r["target"]) or r["event"] == "house"]
     assert all(r["uncertain"] for r in rows if r["technique"] == "secondary")
-    assert all(r["uncertain"] == ("Moon" in (r["moving"], r["target"])) for r in rows if r["technique"] == "solar_arc")
+    fast = {"Moon", "Sun", "Mercury", "Venus", "Mars"}
+    assert all(r["uncertain"] == bool(fast & {r["moving"], r["target"]}) for r in rows if r["technique"] == "solar_arc")
 ```
 
 **Step 2: Run** → fails (no `timeline`).
@@ -614,12 +682,17 @@ def test_untimed_chart(natal):
 **Step 3: Implement** (append):
 
 ```python
-ORB = 1.0            # timeline window, degrees either side of exact
-STEP = 15.0          # days of real time between samples
-TOL = 0.25           # bisect crossings to a quarter day
-MARGIN = 5 * YEAR    # scan this far beyond the range so windows overlapping it are found
+ORB = 1.0                  # timeline window, degrees either side of exact
+STEP = 15.0                # days of real time between samples
+TOL = 0.25                 # bisect crossings to a quarter day
+MARGIN = 5 * YEAR          # scan this far beyond the range so windows overlapping it are found
+SLOW_MARGIN = 40 * YEAR    # the same for movers that can stall at a station: windows up to ~37 years (Mars)
+EDGE_LIMIT = 60 * YEAR     # look this far past exact for a window's closing edge; beyond it the window is open
 SECONDARY_MOVERS = ["Moon", "Sun", "Mercury", "Venus", "Mars"]
+SLOW_MOVERS = {"Mercury", "Venus", "Mars"}
 STATION_BODIES = ["Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "Chiron"]
+# Natal positions a ±12 h birth-time error moves by about 0.4° (Mars) to 7° (the Moon): months of solar arc.
+TIME_SENSITIVE = {"Moon", "Sun", "Mercury", "Venus", "Mars"}
 
 
 def _bisect(f, lo: float, hi: float, flo) -> float:
@@ -642,19 +715,22 @@ def _grid(t0: float, t1: float) -> list[float]:
 
 
 def _zero_crossings(g, ts, gs) -> list[float]:
-    """Where g (values in (-180, 180]) crosses zero between samples, ignoring the ±180 seam."""
+    """Where g (values in [-180, 180)) crosses zero between samples, ignoring the ±180 seam."""
     out = []
     for (a, ga), (b, gb) in zip(zip(ts, gs), zip(ts[1:], gs[1:])):
+        # A real crossing moves g far less than 90° between samples. The exception is within ~0.01° of the
+        # polar circle, where the Ascendant can jump ~180° (natal-chart falls back to whole sign there): like
+        # the ±180 seam, that jump is not a crossing.
         if (ga < 0 <= gb or ga >= 0 > gb) and abs(gb - ga) < 90:
             out.append(_bisect(lambda x: g(x) >= 0, a, b, ga >= 0))
     return out
 
 
-def _edge(g, te: float, direction: int, limit: float = 60 * YEAR) -> float | None:
-    """First time from te (direction ±1) where |g| reaches ORB; None if it never does within limit."""
+def _edge(g, te: float, direction: int, bound: float) -> float | None:
+    """First time from te toward `bound` (direction ±1) where |g| reaches ORB; None if it stays inside to bound."""
     t = te
-    while abs(t - te) < limit:
-        n = t + direction * STEP
+    while (bound - t) * direction > 0:
+        n = min(t + STEP, bound) if direction > 0 else max(t - STEP, bound)
         if abs(g(n)) >= ORB:
             lo, hi = (t, n) if direction > 0 else (n, t)
             return _bisect(lambda x: abs(g(x)) >= ORB, lo, hi, abs(g(lo)) >= ORB)
@@ -662,7 +738,7 @@ def _edge(g, te: float, direction: int, limit: float = 60 * YEAR) -> float | Non
     return None
 
 
-def _aspect_events(technique: str, mover: str, m, targets: dict, ts: list[float]) -> list[dict]:
+def _aspect_events(technique: str, mover: str, m, targets: dict, ts: list[float], birth_jd: float) -> list[dict]:
     ms = [m(t) for t in ts]                      # evaluate the mover once per sample
     rows = []
     for tname, tlon in targets.items():
@@ -674,38 +750,59 @@ def _aspect_events(technique: str, mover: str, m, targets: dict, ts: list[float]
                 g = lambda t, o=off: wrapped(m(t) - o)
                 gs = [wrapped(v - off) for v in ms]
                 for te in _zero_crossings(g, ts, gs):
+                    if tname == mover and te - birth_jd < STEP:
+                        continue         # a point leaving its own natal place; rounding makes it look like a pass
+                    start = _edge(g, te, -1, birth_jd)
                     rows.append({"technique": technique, "event": "aspect", "moving": mover, "aspect": aname,
-                                 "target": tname, "exact": te, "from": _edge(g, te, -1), "to": _edge(g, te, +1),
-                                 "detail": ""})
+                                 "target": tname, "exact": te, "from": birth_jd if start is None else start,
+                                 "to": _edge(g, te, +1, te + EDGE_LIMIT), "detail": ""})
     return rows
 
 
 def _state_events(technique: str, event: str, mover: str, state, ts: list[float], describe) -> list[dict]:
+    """Rows where state(t) changes between samples; describe(old, new, exact) gives the Detail."""
     rows = []
     vals = [state(t) for t in ts]
     for (a, va), (b, vb) in zip(zip(ts, vals), zip(ts[1:], vals[1:])):
         if va != vb:
+            te = _bisect(state, a, b, va)
             rows.append({"technique": technique, "event": event, "moving": mover, "aspect": "", "target": "",
-                         "exact": _bisect(state, a, b, va), "from": None, "to": None, "detail": describe(va, vb)})
+                         "exact": te, "from": None, "to": None, "detail": describe(va, vb, te)})
     return rows
 
 
+def overlaps(row: dict, start: dt.date, end: dt.date) -> bool:
+    """Whether a timeline row, its dates already local, touches start..end, compared as whole days.
+
+    An aspect's window runs from `from` to `to`, open on a side whose edge is None. Ingresses, house ingresses
+    and stations have no window: they are point events on `exact`.
+    """
+    if row["event"] == "aspect":
+        lo = row["from"] if row["from"] is not None else dt.date.min
+        hi = row["to"] if row["to"] is not None else dt.date.max
+    else:
+        lo = hi = row["exact"]
+    return lo <= end and hi >= start
+
+
 def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "solar-arc") -> list[dict]:
-    """Dated secondary and solar arc events whose 1° window overlaps [start, end]."""
+    """Dated secondary and solar arc events whose 1° window overlaps [start, end], as whole local days."""
     meta = natal["meta"]
     tz, bj, zodiac, node = meta["timezone"], meta["julian_day_ut"], meta["zodiac"], meta.get("node", "true")
     timed = bool(natal.get("angles"))
-    r0, r1 = target_jd(start, tz), target_jd(end, tz)
+    r0, r1 = max(target_jd(start, tz), bj), max(target_jd(end, tz), bj)   # never before the birth moment
     ts = _grid(max(bj, r0 - MARGIN), r1 + MARGIN)
+    slow_ts = _grid(max(bj, r0 - SLOW_MARGIN), r1 + SLOW_MARGIN)
     targets = {n: b["longitude"] for n, b in natal["bodies"].items()}
     if timed:
         targets["Ascendant"], targets["MC"] = natal["angles"]["ascendant"], natal["angles"]["mc"]
     flags = _flags(zodiac)
+    natal_sun = sun_lon(bj, zodiac)
     arcs: dict[float, float] = {}
 
     def arc(t):
         if t not in arcs:
-            arcs[t] = solar_arc(bj, t, zodiac)
+            arcs[t] = solar_arc(bj, t, zodiac, natal_sun)
         return arcs[t]
 
     def prog_lon(name):
@@ -718,39 +815,40 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
     rows = []
     for name in SECONDARY_MOVERS:
         if name in natal["bodies"]:
-            rows += _aspect_events("secondary", name, prog_lon(name), targets, ts)
+            rows += _aspect_events("secondary", name, prog_lon(name), targets,
+                                   slow_ts if name in SLOW_MOVERS else ts, bj)
     if timed:
         # With solar-arc angles the progressed MC is the directed MC by definition; list it once, under solar arc.
         moving = (("Ascendant", "ascendant"),) if angles_method == "solar-arc" else (("Ascendant", "ascendant"), ("MC", "mc"))
+        houses_at = house_mover(natal, angles_method)
         for ang, key in moving:
-            rows += _aspect_events("secondary", ang,
-                                   lambda t, k=key: moved_houses(natal, t, angles_method)["angles"][k], targets, ts)
+            rows += _aspect_events("secondary", ang, lambda t, k=key: houses_at(t)["angles"][k], targets, ts, bj)
     for name, lon in targets.items():
-        rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts)
+        rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts, bj)
     for name in natal["bodies"]:
         f = prog_lon(name)
         rows += _state_events("secondary", "ingress", name, lambda t, f=f: int((f(t) % 360) // 30), ts,
-                              lambda a, b: f"enters {SIGNS[b]}")
+                              lambda a, b, t: f"enters {SIGNS[b]}")
     if timed:
         cusps, f = natal["houses"]["cusps"], prog_lon("Moon")
         rows += _state_events("secondary", "house", "Moon", lambda t: house_of(f(t), cusps), ts,
-                              lambda a, b: f"enters natal house {b}")
+                              lambda a, b, t: f"enters natal house {b}")
     for name in STATION_BODIES:
         if name in natal["bodies"]:
             rows += _state_events("secondary", "station", name, prog_retro(name), ts,
-                                  lambda a, b: "turns retrograde" if b else "turns direct")
+                                  lambda a, b, t, f=prog_lon(name):
+                                  f"turns {'retrograde' if b else 'direct'} at {format_degree(f(t))}")
 
-    def overlaps(r):
-        lo = r["from"] if r["from"] is not None else r["exact"]
-        hi = r["to"] if r["to"] is not None else r["exact"]
-        return hi >= r0 and lo <= r1
-
-    rows = [r for r in rows if overlaps(r)]
     for r in rows:
-        # An untimed birth moves every secondary event by up to ~6 months; solar arc only through the Moon.
-        r["uncertain"] = (not timed) and (r["technique"] == "secondary" or "Moon" in (r["moving"], r["target"]))
         for k in ("exact", "from", "to"):
             r[k] = jd_to_local_date(r[k], tz) if r[k] is not None else None
+    rows = [r for r in rows if overlaps(r, start, end)]
+    for r in rows:
+        # Untimed: a 12-hour error in the birth moment moves every secondary event by up to ~6 months (half a
+        # progressed day). Solar arc rows move with the natal positions instead, so they are uncertain when
+        # the Moon, Sun, Mercury, Venus or Mars is the mover or the target.
+        r["uncertain"] = (not timed) and (r["technique"] == "secondary"
+                                          or bool(TIME_SENSITIVE & {r["moving"], r["target"]}))
     rows.sort(key=lambda r: (r["exact"], r["technique"], r["moving"], r["target"]))
     return rows
 ```
@@ -774,11 +872,12 @@ progressions.py chart.json --timeline --start YYYY-MM-DD --end YYYY-MM-DD [--ang
 
 Behaviour:
 - Exactly one of `--date` and `--timeline` (exit 1 otherwise). `--angles` only with secondary charts or the timeline; `--method solar-arc --angles ...` exits 1.
-- Copy `Parser` (usage errors exit 1) and `load_chart` from `composite/scripts/composite.py`. Refuse a chart without a real moment (`meta.julian_day_ut`, `datetime_utc` or `timezone` null, e.g. a midpoint composite) and an already-derived `secondary_progressed` / `solar_arc_directed` chart, each with a one-line stderr message and exit 1.
+- Copy `Parser` (usage errors exit 1) and `load_chart` from `composite/scripts/composite.py`. Refuse any chart whose `meta.chart_type` is present and not `natal` (returns, composites, Davison, progressed and directed charts; a chart carrying `meta.progression` counts as progressed), naming the chart_type, and a natal chart without a real moment (`meta.julian_day_ut`, `datetime_utc` or `timezone` null), each with a one-line stderr message and exit 1.
+- Refuse `--out` or `--grid` resolving to the input chart file (one stderr line, exit 1, nothing written).
 - Chart mode: default out `secondary_progressed_<date>.json` or `solar_arc_directed_<date>.json`; grid default `<out stem>_aspects.md`, rendered with `render_grid` copied from `natal-chart/scripts/grid.py`; `--grid` equal to `--out` exits 1. Print `Wrote <out> and <grid>` and a `Note:` line per flag.
 - Timeline mode: default out `progressions_timeline.csv`; `--end` before `--start` exits 1; a `--start` before birth is clamped to the birth date with a Note; ranges over 120 years exit 1. CSV header `Technique,Event,Moving,Aspect,Target,Exact,Orb from,Orb to,Detail,Uncertain`; Technique is `secondary` or `solar arc`; dates ISO; Uncertain is `yes` or blank. Print `Wrote N events to <out>`, plus a Note when the chart is untimed.
 
-**Tests** (subprocess with `sys.executable -I`, from a tmp cwd): chart mode defaults (both methods; file names, chart_type, grid present); `--angles naibod` recorded in `progression.angles_method`; `--method solar-arc --angles naibod` exits 1; both `--date` and `--timeline` exits 1; neither exits 1; a midpoint composite (`composite/examples/composite.json`) exits 1 with one stderr line; an already-progressed chart exits 1; timeline writes the header and at least 100 rows for the example over 2027–2036 and parses with `csv.DictReader`; end before start exits 1; a start before birth is clamped with a Note; `--grid` equal to `--out` exits 1.
+**Tests** (subprocess with `sys.executable -I`, from a tmp cwd): chart mode defaults (both methods; file names, chart_type, grid present); `--angles naibod` recorded in `progression.angles_method`; `--method solar-arc --angles naibod` exits 1; both `--date` and `--timeline` exits 1; neither exits 1; a composite, a Davison chart and a solar return from the examples each exit 1 with one stderr line naming the chart_type; an already-progressed chart exits 1; `--out` or `--grid` over the input exits 1; `--date` equal to the birth date with an afternoon birth gives age 0; timeline writes the header and at least 100 rows for the example over 2027–2036 and parses with `csv.DictReader`; end before start exits 1; a start before birth is clamped with a Note; `--grid` equal to `--out` exits 1.
 
 **Commit** `git commit -m "Add progressions command line"`
 
@@ -788,7 +887,7 @@ Behaviour:
 
 **Files:** `progressions/SKILL.md`, `progressions/README.md`, `progressions/examples/secondary_progressed_2027-06-15.json` and `_aspects.md`, `progressions/examples/solar_arc_directed_2027-06-15.json` and `_aspects.md`, `progressions/examples/progressions_timeline_2027-2036.csv`.
 
-SKILL.md in the house style (model on `returns/SKILL.md`): trigger description (progressions, progressed chart, progressed Moon, secondary progressions, solar arc, solar arc directions, "what's my progressed Moon doing", "what's coming up for me this decade", progressed Sun changing sign); the two modes and when to use each; the angle methods and that solar-arc is the default; the time key; the timeline columns and how to read windows; the untimed-birth ±6-month caveat stated plainly; presenting results (lead with the progressed Moon's sign and house and the next two or three exact events; group a timeline by year; say which technique each event comes from); consumers (wheel and synastry read the charts; returns refuses them; transits to a progressed chart are unusual); exit codes; troubleshooting. README with "Examples are produced by:" and the exact commands, run from the repo root:
+SKILL.md in the house style (model on `returns/SKILL.md`): trigger description (progressions, progressed chart, progressed Moon, secondary progressions, solar arc, solar arc directions, "what's my progressed Moon doing", "what's coming up for me this decade", progressed Sun changing sign); the two modes and when to use each; the angle methods and that solar-arc is the default; the time key; the timeline columns and how to read windows; the untimed-birth ±6-month caveat stated plainly (and that solar arc events touching the Moon, Sun, Mercury, Venus or Mars are marked uncertain too); presenting results (lead with the progressed Moon's sign and house and the next two or three exact events; group a timeline by year; say which technique each event comes from); consumers (wheel and synastry read the charts; returns refuses them; transits to a progressed chart are unusual); exit codes; troubleshooting. README with "Examples are produced by:" and the exact commands, run from the repo root:
 
 ```
 python progressions/scripts/progressions.py natal-chart/examples/chart.json --date 2027-06-15 --out progressions/examples/secondary_progressed_2027-06-15.json
@@ -813,6 +912,18 @@ Add `progressions_timeline*.csv` with an `!**/examples/` exception to `.gitignor
 **Commit** `git commit -m "Add progressions to portfolio README"`
 
 ---
+
+## Review fixes
+
+A review round after Tasks 2-5 changed the code above in place (the blocks show the fixed code): the Lahiri
+ayanamsa with nutation, as natal-chart uses; sidereal houses shifted back with the ayanamsa at the progressed
+instant; sidereal and directed whole-sign cusps on sign boundaries from the Ascendant's sign; `moon_range`
+recomputed on progressed and directed charts; targets before the birth moment clamped to age 0; non-natal
+inputs and outputs over the input refused; Mercury, Venus and Mars scanned 40 years either side of the range;
+no self-aspect at birth and no window before it; whole-day range overlap with open-ended windows; exact local
+midnights kept on their date; natal constants cached; solar arc rows uncertain for untimed charts when the
+Moon, Sun, Mercury, Venus or Mars is involved; station longitudes in Detail. Each has a test in
+`progressions/tests`.
 
 ## Out of scope
 
