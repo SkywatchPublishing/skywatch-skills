@@ -166,20 +166,36 @@ def armc_from_mc(mc: float, eps: float) -> float:
     return math.degrees(math.atan2(math.sin(m) * math.cos(e), math.cos(m))) % 360.0
 
 
+def lahiri_ayanamsa(jd: float) -> float:
+    """Lahiri ayanamsa with nutation: what calc_ut subtracts under FLG_SIDEREAL, as natal-chart's
+    sidereal zodiac does (get_ayanamsa_ut is the mean value and differs by up to 0.005°)."""
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    return swe.get_ayanamsa_ex_ut(jd, swe.FLG_SWIEPH)[1]
+
+
 HOUSE_CODES = {"placidus": b"P", "koch": b"K", "equal": b"E", "porphyry": b"O", "whole_sign": b"W"}
 
 
-def houses_from_mc(mc: float, latitude: float, eps: float, system: str) -> dict:
-    """Cusps and angles for a given MC at a latitude; whole-sign fallback at polar latitudes."""
+def houses_from_mc(mc: float, latitude: float, eps: float, system: str, ayanamsa: float = 0.0) -> dict:
+    """Cusps and angles for a given MC at a latitude; whole-sign fallback at polar latitudes.
+
+    The ARMC routine is tropical, so a sidereal MC is passed with its ``ayanamsa``: it is added to
+    the MC and subtracted from the Ascendant, MC and cusps. Whole-sign cusps are rebuilt from the
+    shifted Ascendant's sign, since shifted tropical sign boundaries are not sidereal ones.
+    """
     flags = []
-    armc = armc_from_mc(mc, eps)
+    armc = armc_from_mc(mc + ayanamsa, eps)
     try:
         cusps, ascmc = swe.houses_armc(armc, latitude, eps, HOUSE_CODES[system])
     except swe.Error:
         cusps, ascmc = swe.houses_armc(armc, latitude, eps, HOUSE_CODES["whole_sign"])
         system, flags = "whole_sign", ["polar_fallback_whole_sign"]
-    asc, mc_out = ascmc[0] % 360, ascmc[1] % 360
-    return {"system": system, "cusps": [c % 360 for c in cusps[:12]],
+    asc, mc_out = (ascmc[0] - ayanamsa) % 360, (ascmc[1] - ayanamsa) % 360
+    cusps = [(c - ayanamsa) % 360 for c in cusps[:12]]
+    if system == "whole_sign":
+        start = asc // 30 * 30
+        cusps = [(start + 30 * i) % 360 for i in range(12)]
+    return {"system": system, "cusps": cusps,
             "angles": {"ascendant": asc, "mc": mc_out, "descendant": (asc + 180) % 360, "ic": (mc_out + 180) % 360},
             "flags": flags}
 
@@ -214,7 +230,8 @@ def midpoint_chart(a: dict, b: dict, reference: dict, house_system: str) -> dict
         flags += ["time_unknown", "moon_uncertain"]
     else:
         mc = midpoint(a["angles"]["mc"], b["angles"]["mc"])
-        derived = houses_from_mc(mc, reference["latitude"], obliquity(jd), house_system)
+        aya = lahiri_ayanamsa(jd) if (ma.get("zodiac") or "").startswith("sidereal") else 0.0
+        derived = houses_from_mc(mc, reference["latitude"], obliquity(jd), house_system, aya)
         flags += derived["flags"]
         angles = {k: round(v, 4) for k, v in derived["angles"].items()}
         houses = {"system": derived["system"], "cusps": [round(c, 4) for c in derived["cusps"]]}
