@@ -219,9 +219,13 @@ def captions(chart: dict) -> str:
         derived_from = [str(d) for d in (meta.get("derived_from") or [])]
         title = f"{humanised} for {_join_names(derived_from)}" if derived_from else humanised
     progression = meta.get("progression")
-    if progression:
+    target = progression.get("target_date") if isinstance(progression, dict) else None
+    if target:
         # A progressed or directed chart keeps the birth timestamps; the date it is read for is what matters.
-        moment = f"for {progression['target_date']}"
+        moment = f"for {target}"
+    elif chart_type in ("secondary_progressed", "solar_arc_directed"):
+        # No usable target date: show no moment rather than the birth moment, which is not this chart's.
+        moment = ""
     else:
         # A midpoint composite has no real moment: datetime_local and timezone are null and the segment is dropped.
         moment = str(meta.get("datetime_local") or "").replace("T", " ")

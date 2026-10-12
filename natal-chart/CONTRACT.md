@@ -22,7 +22,8 @@ so files written before them may omit both: consumers read them with `.get`, tre
 
 Consumers must test truthiness (`if chart["angles"]:`), not key presence. transits-to-natal
 refuses a chart whose `meta.timezone` is null (a midpoint `composite`), since it has no moment to scan from.
-returns also refuses a `secondary_progressed` or `solar_arc_directed` chart: cast returns from the natal chart.
+returns and composite refuse progressed and directed charts (`meta.chart_type` `secondary_progressed` or
+`solar_arc_directed`, or any chart carrying `meta.progression`): cast returns and composites from the natal charts.
 
 ## `meta`
 
@@ -31,15 +32,15 @@ returns also refuses a `secondary_progressed` or `solar_arc_directed` chart: cas
 | `name` | string | Chart owner's name as given on the command line. |
 | `chart_type` | string | `natal` from natal-chart. Derived charts rewrite it: `solar_return`, `lunar_return`, `mars_return`, `jupiter_return`, `saturn_return`, `uranus_return`, `chiron_return`, `composite`, `davison`, `secondary_progressed`, `solar_arc_directed`. |
 | `derived_from` | array of string | Names of the source charts a derived chart was built from; `[]` for natal. |
-| `datetime_local` | string or null | ISO 8601 local wall-clock time, no offset, e.g. `1990-06-15T12:00:00`. Noon when the time is unknown. A wall-clock time that occurs twice at a DST fall-back is disambiguated by `--fold` (0 first occurrence, 1 second); `utc_offset` and `datetime_utc` show which was used. A midpoint `composite` chart has no real moment and carries `null` here and in `timezone`, `datetime_utc` and `utc_offset`; `davison` and every return carry real values. |
+| `datetime_local` | string or null | ISO 8601 local wall-clock time, no offset, e.g. `1990-06-15T12:00:00`. Noon when the time is unknown. A wall-clock time that occurs twice at a DST fall-back is disambiguated by `--fold` (0 first occurrence, 1 second); `utc_offset` and `datetime_utc` show which was used. A midpoint `composite` chart has no real moment and carries `null` here and in `timezone`, `datetime_utc` and `utc_offset`; `davison` and every return carry real values. On progressed and directed charts this and the other birth timestamps are the natal values, not the chart's moment; see `progression`. |
 | `timezone` | string or null | IANA zone used, e.g. `America/New_York`. `null` for a midpoint `composite`. |
 | `datetime_utc` | string or null | ISO 8601 UTC with trailing `Z`. `null` for a midpoint `composite`. |
 | `utc_offset` | string or null | Offset in force at birth, `+HH:MM` / `-HH:MM`. `null` for a midpoint `composite`. |
-| `return_utc` | string | ISO 8601 UTC with trailing `Z`, present only on return charts: the exact return moment, which `datetime_utc` matches to the second. |
-| `progression` | object or absent | Written only by progressions, on `secondary_progressed` and `solar_arc_directed` charts; absent on every other chart type. `{target_date, age_years, solar_arc, angles_method}`: `target_date` is the ISO date the chart is read for, e.g. `2027-06-15`; `age_years` the age at that date in tropical years; `solar_arc` the true solar arc in degrees (progressed Sun minus natal Sun); `angles_method` `solar-arc` or `naibod` for a progressed chart, `null` for a directed chart. The birth timestamps (`datetime_local`, `datetime_utc`, `timezone`) are kept from the natal chart, not moved to the target date. |
+| `return_utc` | string | ISO 8601 UTC with trailing `Z`, present only on return charts: the exact return moment, which `datetime_utc` matches to the second. It never appears on progressed or directed charts. |
+| `progression` | object or absent | Written only by progressions, on `secondary_progressed` and `solar_arc_directed` charts; absent on every other chart type. `{target_date, age_years, solar_arc, angles_method}`: `target_date` is the ISO date the chart is read for, e.g. `2027-06-15`, a local date in `meta.timezone`; the chart is computed for local noon of that date. `age_years` is the age at that date in tropical years; `solar_arc` the true solar arc in degrees (progressed Sun minus natal Sun), in `[0, 360)`; both are rounded to 4 decimals. `angles_method` is `solar-arc` or `naibod` for a progressed chart with a known birth time, and `null` for a directed chart and for a progressed chart cast from an untimed natal chart. On progressed and directed charts `datetime_local`, `datetime_utc`, `utc_offset`, `timezone` and `julian_day_ut` are the natal birth values unchanged and are not the chart's moment; the chart describes `progression.target_date`; read them only for the birth timezone. |
 | `julian_day_ut` | float | Julian day (UT), 7 decimals. |
 | `time_unknown` | bool | True when no `--time` was given; the chart was cast at local noon. |
-| `moon_range` | object or null | `{start, end}` Moon longitudes in degrees at 00:00 and 23:59 local; present when `time_unknown`, else `null`, except a midpoint `composite`, where it is `null` even when `time_unknown` (there is no day to span). The span may wrap through 0° (`start` > `end`, e.g. 355 -> 8). |
+| `moon_range` | object or null | `{start, end}` Moon longitudes in degrees at 00:00 and 23:59 local; present when `time_unknown`, else `null`, except a midpoint `composite`, where it is `null` even when `time_unknown` (there is no day to span), and progressed and directed charts, which always carry `moon_range: null`. The span may wrap through 0° (`start` > `end`, e.g. 355 -> 8). |
 | `location` | object | `{name: string, latitude: float, longitude: float, geonameid: int or null}`. `geonameid` is `null` for `--lat/--lon` input; `name` is then `"lat, lon"`. |
 | `zodiac` | string | `"tropical"` or `"sidereal_lahiri"`. |
 | `house_system` | string or null | `placidus`, `koch`, `equal`, `porphyry` or `whole_sign` as actually used (after any polar fallback); `null` when `time_unknown`. |

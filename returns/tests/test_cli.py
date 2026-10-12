@@ -127,10 +127,16 @@ def test_midpoint_composite_is_refused_via_main(tmp_path, capsys, monkeypatch):
     assert not list(tmp_path.glob("*.json"))
 
 
-def test_progressed_chart_is_refused(tmp_path, capsys):
+@pytest.mark.parametrize("extra_meta", [
+    {"chart_type": "secondary_progressed"},
+    {"chart_type": "solar_arc_directed"},
+    {"progression": {"target_date": "2027-06-15", "age_years": 37.0001, "solar_arc": 35.2991,
+                     "angles_method": None}},
+], ids=["progressed", "directed", "progression-key"])
+def test_progressed_chart_is_refused(tmp_path, capsys, extra_meta):
     import returns as rt
     chart = json.loads(EXAMPLE.read_text())
-    chart["meta"]["chart_type"] = "secondary_progressed"
+    chart["meta"].update(extra_meta)
     p = tmp_path / "p.json"
     p.write_text(json.dumps(chart))
     assert rt.main([str(p), "--start", "2027-01-01", "--end", "2027-12-31", "--out-dir", str(tmp_path)]) == 1

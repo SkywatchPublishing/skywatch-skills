@@ -272,3 +272,36 @@ def test_progressed_caption_shows_target_date():
     assert "Secondary progressed for Example" in svg
     assert "for 2027-06-15" in svg
     assert "1990-06-15 12:00:00" not in svg
+
+
+def _progressed(chart_type: str, progression) -> dict:
+    chart = load_example()
+    chart["meta"]["chart_type"] = chart_type
+    chart["meta"]["derived_from"] = ["Example"]
+    chart["meta"]["progression"] = progression
+    return chart
+
+
+def test_directed_caption_shows_target_date():
+    chart = _progressed("solar_arc_directed", {"target_date": "2027-06-15", "age_years": 37.0001,
+                                               "solar_arc": 35.2991, "angles_method": None})
+    top = texts(render_root(chart), "caption")[0].text
+    assert "Solar arc directed for Example" in top
+    assert "for 2027-06-15" in top
+    assert "1990-06-15" not in top
+
+
+def test_target_date_with_xml_specials_is_escaped():
+    chart = _progressed("secondary_progressed", {"target_date": "<&>"})
+    top = texts(render_root(chart), "caption")[0].text
+    assert top.endswith("for <&>")
+
+
+def test_empty_progression_on_progressed_chart_shows_no_birth_moment():
+    top = texts(render_root(_progressed("secondary_progressed", {})), "caption")[0].text
+    assert top == "Secondary progressed for Example"
+
+
+def test_string_progression_does_not_crash():
+    top = texts(render_root(_progressed("secondary_progressed", "2027-06-15")), "caption")[0].text
+    assert top == "Secondary progressed for Example"
