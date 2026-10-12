@@ -127,6 +127,17 @@ def test_midpoint_composite_is_refused_via_main(tmp_path, capsys, monkeypatch):
     assert not list(tmp_path.glob("*.json"))
 
 
+def test_progressed_chart_is_refused(tmp_path, capsys):
+    import returns as rt
+    chart = json.loads(EXAMPLE.read_text())
+    chart["meta"]["chart_type"] = "secondary_progressed"
+    p = tmp_path / "p.json"
+    p.write_text(json.dumps(chart))
+    assert rt.main([str(p), "--start", "2027-01-01", "--end", "2027-12-31", "--out-dir", str(tmp_path)]) == 1
+    assert "progressed or directed" in capsys.readouterr().err
+    assert not list(tmp_path.glob("*_return_*.json"))
+
+
 def test_summary_takes_next_free_name_and_keeps_existing(tmp_path):
     seed = tmp_path / "returns_summary.md"
     seed.write_text("seed")

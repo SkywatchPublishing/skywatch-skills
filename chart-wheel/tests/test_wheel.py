@@ -260,3 +260,15 @@ def test_three_derived_names_get_comma_list_with_final_and():
     chart["meta"]["chart_type"] = "composite"
     chart["meta"]["derived_from"] = ["A", "B", "C"]
     assert "Composite for A, B and C" in cw.render(chart)
+
+
+def test_progressed_caption_shows_target_date():
+    chart = load_example()
+    chart["meta"]["chart_type"] = "secondary_progressed"
+    chart["meta"]["derived_from"] = ["Example"]
+    chart["meta"]["progression"] = {"target_date": "2027-06-15", "age_years": 37.0001,
+                                    "solar_arc": 35.2991, "angles_method": "solar-arc"}
+    svg = cw.render(chart)
+    assert "Secondary progressed for Example" in svg
+    assert "for 2027-06-15" in svg
+    assert "1990-06-15 12:00:00" not in svg

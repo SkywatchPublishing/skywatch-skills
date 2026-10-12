@@ -218,10 +218,15 @@ def captions(chart: dict) -> str:
         humanised = str(chart_type).replace("_", " ").capitalize()
         derived_from = [str(d) for d in (meta.get("derived_from") or [])]
         title = f"{humanised} for {_join_names(derived_from)}" if derived_from else humanised
-    # A midpoint composite has no real moment: datetime_local and timezone are null and the segment is dropped.
-    moment = str(meta.get("datetime_local") or "").replace("T", " ")
-    if meta.get("timezone"):
-        moment = f'{moment} ({meta["timezone"]})'.strip()
+    progression = meta.get("progression")
+    if progression:
+        # A progressed or directed chart keeps the birth timestamps; the date it is read for is what matters.
+        moment = f"for {progression['target_date']}"
+    else:
+        # A midpoint composite has no real moment: datetime_local and timezone are null and the segment is dropped.
+        moment = str(meta.get("datetime_local") or "").replace("T", " ")
+        if meta.get("timezone"):
+            moment = f'{moment} ({meta["timezone"]})'.strip()
     top = "  ·  ".join(p for p in (title, moment) if p)
     parts = [(meta.get("location") or {}).get("name", "")]
     if meta.get("time_unknown"):
