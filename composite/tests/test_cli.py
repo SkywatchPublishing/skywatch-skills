@@ -65,6 +65,27 @@ def test_davison_unreadable_datetime_utc_exits_1(tmp_path, stamp):
     assert not (tmp_path / "davison.json").exists()
 
 
+PROGRESSED_META = [
+    {"chart_type": "secondary_progressed"},
+    {"chart_type": "solar_arc_directed"},
+    {"progression": {"target_date": "2027-06-15", "age_years": 37.0001, "solar_arc": 35.2991,
+                     "angles_method": None}},
+]
+
+
+@pytest.mark.parametrize("method", ["midpoint", "davison"])
+@pytest.mark.parametrize("extra_meta", PROGRESSED_META, ids=["progressed", "directed", "progression-key"])
+def test_progressed_or_directed_chart_is_refused(tmp_path, method, extra_meta):
+    chart = json.loads(EXAMPLE.read_text())
+    chart["meta"].update(extra_meta)
+    (tmp_path / "p.json").write_text(json.dumps(chart))
+    proc = run("--a", str(EXAMPLE), "--b", "p.json", "--method", method, cwd=tmp_path)
+    assert proc.returncode == 1
+    assert proc.stderr.strip() == \
+        "composite: progressed and directed charts can't be composited; use the natal charts"
+    assert not list(tmp_path.glob("composite*")) and not list(tmp_path.glob("davison*"))
+
+
 def _strip(chart: dict) -> dict:
     chart = json.loads(json.dumps(chart))
     chart["meta"].pop("source", None)
