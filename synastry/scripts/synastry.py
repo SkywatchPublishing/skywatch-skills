@@ -197,7 +197,7 @@ def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
         words = shlex.split(birth)
     except ValueError as exc:
         raise ValueError(f"cannot parse birth arguments {birth!r}: {exc}") from exc
-    cmd = [sys.executable, "-I", str(natal_script), *words,
+    cmd = [sys.executable, "-P", str(natal_script), *words,
            "--out", str(out), "--grid", str(out.with_suffix(".md"))]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
