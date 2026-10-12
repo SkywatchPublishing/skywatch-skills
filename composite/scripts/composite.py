@@ -316,17 +316,6 @@ def find_natal_script() -> Path | None:
     return next((c for c in candidates if c.is_file()), None)
 
 
-PRINTED_NOTES: set[str] = set()
-
-
-def forward_notes(stdout: str) -> None:
-    """Print natal-chart's ``Note:`` lines, remembering them so main does not repeat the flag."""
-    for line in stdout.splitlines():
-        if line.startswith("Note:"):
-            PRINTED_NOTES.add(line[len("Note:"):].strip())
-            print(line)
-
-
 class DelegationFailed(Exception):
     def __init__(self, code: int, stdout: str, stderr: str):
         super().__init__(f"natal_chart.py exited {code}")
@@ -361,6 +350,7 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
     untimed convention: the chart is cast at local noon at the midpoint place on the local date of
     the mean instant (not at the mean of the two noons, and not at the mean instant itself), with
     ``time_unknown`` set and no angles or houses. natal-chart writes the aspect grid to ``grid``.
+    Its ``Note:`` lines are not forwarded: they are this chart's ``meta.flags``, which main prints.
 
     Raises ValueError when the charts disagree on zodiac or node, or when the birthplaces are
     antipodal (no unique midpoint).
@@ -395,7 +385,6 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         raise DelegationFailed(proc.returncode, proc.stdout, proc.stderr)
-    forward_notes(proc.stdout)
     sys.stderr.write(proc.stderr)
 
     chart = load_chart(out)
@@ -442,11 +431,13 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
+def cast_chart(natal_script: Path, birth: str, out: Path, side: str) -> dict:
     """Run the natal script with the user's raw arguments, writing to ``out``, and load the result.
 
     ``--out`` and ``--grid`` come last so a user-supplied path in ``birth`` cannot write outside the
-    temporary directory. The natal script's "Note:" lines and stderr are forwarded to the user.
+    temporary directory. The natal script's stderr is forwarded to the user, and so are its
+    "Note: <flag>" lines, prefixed with ``side`` the way synastry names each person's flags
+    (``Note: a_polar_fallback_whole_sign``) so they are not read as notes about the composite.
     """
     try:
         words = shlex.split(birth)
@@ -457,7 +448,9 @@ def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
         raise DelegationFailed(proc.returncode, proc.stdout, proc.stderr)
-    forward_notes(proc.stdout)
+    for line in proc.stdout.splitlines():
+        if line.startswith("Note:"):
+            print(f"Note: {side}_{line[len('Note:'):].strip()}")
     sys.stderr.write(proc.stderr)
     return load_chart(out)
 
@@ -529,7 +522,7 @@ def main(argv=None) -> int:
             for side in "ab":
                 birth = getattr(args, f"{side}_birth")
                 if birth:
-                    charts[side] = cast_chart(natal_script, birth, Path(tmp) / f"{side}.json")
+                    charts[side] = cast_chart(natal_script, birth, Path(tmp) / f"{side}.json", side)
                 else:
                     charts[side] = load_chart(getattr(args, side))
             a, b = charts["a"], charts["b"]
@@ -556,8 +549,7 @@ def main(argv=None) -> int:
 
     print(f"Wrote {out} and {grid_path}")
     for flag in chart["meta"]["flags"]:
-        if flag not in PRINTED_NOTES:
-            print(f"Note: {flag}")
+        print(f"Note: {flag}")
     if args.houses and not chart.get("houses"):
         print("Note: --houses ignored because the composite has no houses (an untimed side)")
     return 0

@@ -47,7 +47,7 @@ Each person is given one of two ways, exactly as in `synastry`:
 | `--a chartA.json` / `--b chartB.json` | A `chart.json` from `natal-chart` already exists for that person. |
 | `--a-birth "..."` / `--b-birth "..."` | You only have birth data. The string is the full argument list for `natal_chart.py`, quoted as one shell word, e.g. `--a-birth "--name Ada --date 1990-06-15 --time 14:30 --city 'London, GB'"`. |
 
-Mix them freely. A birth string is handed verbatim to the natal-chart script; its `Note:` lines and stderr are forwarded. The cast natal charts are kept in a temporary directory, so if the user will want them again, run `natal-chart` with `--out` and pass the files.
+Mix them freely. A birth string is handed verbatim to the natal-chart script; its stderr is forwarded, and so are its `Note:` lines, with the flag prefixed `a_` or `b_` for the person it is about (`Note: a_polar_fallback_whole_sign`), as synastry does. The cast natal charts are kept in a temporary directory, so if the user will want them again, run `natal-chart` with `--out` and pass the files.
 
 Both charts must share the same zodiac and the same node setting. If they differ (`charts disagree on zodiac: 'tropical' vs 'sidereal'`), re-cast one of them with matching `--zodiac`/`--node` and run again.
 
@@ -89,7 +89,7 @@ Exit codes:
 
 | Code | Meaning |
 |---|---|
-| `0` | Success; `Wrote <out> and <grid>` followed by one `Note:` line per flag in `meta.flags`. A flag natal-chart already announced while casting (a Davison or a birth string) is not repeated. If `--houses` was given but the composite has no houses (an untimed side) a `Note: --houses ignored ...` line follows. |
+| `0` | Success; `Wrote <out> and <grid>` followed by one `Note:` line per flag in `meta.flags`; any `Note: a_...`/`Note: b_...` lines printed before it are about that person's natal cast, not the composite. If `--houses` was given but the composite has no houses (an untimed side) a `Note: --houses ignored ...` line follows. |
 | `1` | Bad arguments (both `--a` and `--a-birth`, or neither; place flags with `--method davison`; `--lat` without `--lon`; a mix of place flags; `--out` that is only an extension; `--grid` naming the same file as `--out`), an unreadable or malformed chart file (invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`), the two charts disagreeing on zodiac or node, antipodal birthplaces on a Davison chart (`birthplaces are antipodal; no unique midpoint`), or `natal-chart` not found when it is needed. One line on stderr. |
 | `2` | A `--city` (in a birth string or as the reference place) matched several places. The natal-chart candidate table is printed on stdout; nothing is written. |
 
@@ -185,6 +185,7 @@ A midpoint composite is not a moment in time: do not describe it as "the sky on"
 | `Note: davison_timezone_utc` | The midpoint has no timezone (open ocean, Antarctica); the chart is cast in UTC, which changes nothing in the positions. Mention it. |
 | `Note: time_unknown` and `Note: moon_uncertain` | One input is untimed; no angles or houses, Moon approximate. See "Unknown birth time". |
 | `Note: polar_fallback_whole_sign` | The reference latitude is beyond where Placidus or Koch work; houses are whole-sign. Choose a lower-latitude reference place if that matters. |
+| `Note: a_polar_fallback_whole_sign` (or another `a_`/`b_` flag) | A flag from casting that person's natal chart from a birth string, not about the composite; read it as the `natal-chart` skill explains it. |
 | `transits-to-natal` exits 1 on the composite | Expected for a midpoint composite; cast a Davison chart for transits. |
 | `angles` is `null` though both charts were timed | One chart file has had its `angles` removed; re-cast it. |
 | Results disagree with another program | Check each natal chart first (timezone, zodiac, house system). Then check which composite MC convention the other program uses (midpoint of MCs here; some use the midpoint of the ARMCs) and which reference latitude; for Davison, whether it uses the great-circle or arithmetic midpoint of the birthplaces. |
