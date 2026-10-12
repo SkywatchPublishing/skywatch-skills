@@ -355,6 +355,10 @@ def main(argv=None) -> int:
         print(f"returns: this chart has no real moment (chart_type {chart['meta'].get('chart_type', 'natal')}); "
               "returns need a natal, return or Davison chart", file=sys.stderr)
         return 1
+    if chart["meta"].get("chart_type") in ("secondary_progressed", "solar_arc_directed") \
+            or "progression" in chart["meta"]:
+        print("returns: this is a progressed or directed chart; cast returns from the natal chart", file=sys.stderr)
+        return 1
     body_name, body_id = BODIES[args.body]
     if body_name not in chart["bodies"]:
         hint = " (flagged chiron_unavailable)" if args.body == "chiron" else ""

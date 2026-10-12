@@ -175,6 +175,23 @@ def test_natal_place_fallback_passes_chart_tz_once(tmp_path, monkeypatch):
     assert calls[0].count("--tz") == 1 and calls[0][calls[0].index("--tz") + 1] == "America/New_York"
 
 
+@pytest.mark.parametrize("extra_meta", [
+    {"chart_type": "secondary_progressed"},
+    {"chart_type": "solar_arc_directed"},
+    {"progression": {"target_date": "2027-06-15", "age_years": 37.0001, "solar_arc": 35.2991,
+                     "angles_method": None}},
+], ids=["progressed", "directed", "progression-key"])
+def test_progressed_chart_is_refused(tmp_path, capsys, extra_meta):
+    import returns as rt
+    chart = json.loads(EXAMPLE.read_text())
+    chart["meta"].update(extra_meta)
+    p = tmp_path / "p.json"
+    p.write_text(json.dumps(chart))
+    assert rt.main([str(p), "--start", "2027-01-01", "--end", "2027-12-31", "--out-dir", str(tmp_path)]) == 1
+    assert "progressed or directed" in capsys.readouterr().err
+    assert not list(tmp_path.glob("*_return_*.json"))
+
+
 def test_summary_takes_next_free_name_and_keeps_existing(tmp_path):
     seed = tmp_path / "returns_summary.md"
     seed.write_text("seed")
