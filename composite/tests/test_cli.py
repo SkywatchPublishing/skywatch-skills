@@ -53,6 +53,19 @@ def test_davison_antipodal_birthplaces_exits_1(tmp_path):
     assert not (tmp_path / "davison.json").exists()
 
 
+@pytest.mark.parametrize("stamp", ["2001-02-03T04:05:06.5Z", "garbage"])
+def test_davison_unreadable_datetime_utc_exits_1(tmp_path, stamp):
+    b = json.loads(PARTNER.read_text())
+    b["meta"]["datetime_utc"] = stamp
+    (tmp_path / "b.json").write_text(json.dumps(b))
+    proc = run("--a", str(EXAMPLE), "--b", "b.json", "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    assert "antipodal" not in proc.stderr
+    assert "datetime_utc" in proc.stderr and repr(stamp) in proc.stderr and "Partner" in proc.stderr
+    assert not (tmp_path / "davison.json").exists()
+
+
 @pytest.mark.parametrize("swap", [False, True], ids=["composite_as_a", "composite_as_b"])
 def test_davison_of_midpoint_composite_exits_1(tmp_path, swap):
     # A midpoint composite has null datetime_utc and timezone: there is no moment to average.
