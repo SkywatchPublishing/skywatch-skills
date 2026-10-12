@@ -18,7 +18,7 @@ so files written before them may omit both: consumers read them with `.get`, tre
 | `angles` | object or null | `null` when `meta.time_unknown` is true. |
 | `houses` | object or null | `null` when `meta.time_unknown` is true. |
 | `bodies` | object | Body name -> position (below). |
-| `aspects` | array | Natal aspects (below). |
+| `aspects` | array | Aspects between the chart's own points (below): natal aspects on a natal chart; on progressed and directed charts, aspects among the progressed or directed points, not to the natal chart. |
 
 Consumers must test truthiness (`if chart["angles"]:`), not key presence. transits-to-natal
 refuses a chart whose `meta.timezone` is null (a midpoint `composite`), since it has no moment to scan from.
@@ -46,7 +46,7 @@ returns and composite refuse progressed and directed charts (`meta.chart_type` `
 | `house_system` | string or null | `placidus`, `koch`, `equal`, `porphyry` or `whole_sign` as actually used (after any polar fallback); `null` when `time_unknown`. |
 | `node` | string | `"true"` or `"mean"`: which lunar node the `Node` body holds. |
 | `flags` | array of string | Caveats, see below. Empty array when none. |
-| `source` | object | `{library: "pyswisseph", version: string, ephemeris_files: bool}`. `ephemeris_files` false means the built-in Moshier ephemeris was used (slightly lower precision); on progressed and directed charts it describes the progressions run, not the natal cast. Composite charts add `method`: `"midpoint"` or `"davison"`; absent on every other chart type. |
+| `source` | object | `{library: "pyswisseph", version: string, ephemeris_files: bool}`. `ephemeris_files` false means the built-in Moshier ephemeris was used (slightly lower precision); on progressed and directed charts `version` and `ephemeris_files` describe the progressions run, not the natal cast. Composite charts add `method`: `"midpoint"` or `"davison"`; absent on every other chart type. |
 
 ### `flags` values
 
@@ -87,7 +87,7 @@ single key `Node`, whether true or mean; `meta.node` says which. Each value:
 | `sign` | string | English sign name, `Aries` .. `Pisces`. |
 | `sign_degree` | float | `longitude % 30`, 4 decimals. |
 | `formatted` | string | `D°MM' Sign`, e.g. `24°17' Gemini`; rounded to the arc-minute, rolling into the next sign at 30°00'. |
-| `speed` | float or null | Daily motion in degrees/day; negative when retrograde. `null` in `solar_arc_directed` charts because a directed position has no daily motion (`retrograde` is then false). |
+| `speed` | float or null | Daily motion in degrees/day; negative when retrograde. `null` in `solar_arc_directed` charts because a directed position has no daily motion (`retrograde` is then false); consumers must tolerate a null `speed`. |
 | `retrograde` | bool | `speed < 0`. |
 | `house` | int or null | 1..12 by `houses.cusps`; `null` when `time_unknown`. |
 | `latitude` | float | Ecliptic latitude in degrees. |

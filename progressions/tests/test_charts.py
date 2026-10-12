@@ -163,6 +163,14 @@ def test_missing_chiron_stays_missing(natal):
     assert "Chiron" not in pg.progressed_chart(natal, at(natal, 2027, 6, 15))["bodies"]
 
 
+def test_charts_record_the_pyswisseph_that_computed_them(natal):
+    natal["meta"]["source"]["version"] = "2.08.00"          # as if cast with an older pyswisseph
+    t = at(natal, 2027, 6, 15)
+    for chart in (pg.progressed_chart(natal, t), pg.directed_chart(natal, t)):
+        assert chart["meta"]["source"]["version"] == swe.version
+        assert chart["meta"]["source"]["library"] == "pyswisseph"
+
+
 @pytest.mark.needs_ephemeris
 def test_charts_record_the_ephemeris_used(natal):
     t = at(natal, 2027, 6, 15)
@@ -178,6 +186,5 @@ def test_missing_ephemeris_files_flag_chiron_like_natal_chart(natal, no_ephemeri
     # A directed Chiron is natal Chiron plus the arc: no ephemeris file needed.
     assert "Chiron" in d["bodies"] and "chiron_unavailable" not in d["meta"]["flags"]
     for chart in (p, d):
-        assert chart["meta"]["source"]["ephemeris_files"] is False
-        assert chart["meta"]["source"]["library"] == "pyswisseph"
+        assert chart["meta"]["source"] == {"library": "pyswisseph", "version": swe.version, "ephemeris_files": False}
     assert natal["meta"]["source"]["ephemeris_files"] is True

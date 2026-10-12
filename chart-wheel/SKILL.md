@@ -29,11 +29,11 @@ Reading from the outside in:
 | Planet ring | A tick at each body's true longitude on the inner edge of the house ring, the body's glyph (☉ ☽ ☿ ♀ ♂ ♃ ♄ ♅ ♆ ♇ ⚷ ☊) inside it, and a degree label such as `24°17'` below the glyph, with ` ℞` appended for a retrograde body. |
 | Aspect lines | Chords across the inner circle joining aspected bodies and angles. Red for the hard aspects (opposition, square), blue for the soft ones (trine, sextile), grey for the quincunx. Conjunctions are not drawn; the glyphs sitting together say it already. |
 
-Line style carries one more fact: a **solid** aspect line is applying, a **dashed** line is separating. Aspects to the Ascendant and MC have no applying/separating value (`applying: null`) and are drawn solid.
+Line style carries one more fact: a **solid** aspect line is applying (and every aspect of a solar arc directed chart, whose aspects have no applying/separating), a **dashed** line is separating. Aspects to the Ascendant and MC have no applying/separating value either (`applying: null`) and are drawn solid.
 
 When bodies crowd together (a stellium, or a tight conjunction) the glyphs are nudged apart so they do not overlap, and each nudged glyph gets a thin grey **lead line** from its true-position tick in to the glyph. The ticks and the aspect lines always use the true longitude; only the glyph and its label move. Degree labels of close neighbours are staggered through three radii so they do not touch.
 
-Two captions sit outside the wheel: the name, local date-time and timezone at the top; the place, house system, zodiac (when sidereal) and any chart flags at the bottom. For a derived chart (`meta.chart_type` other than `natal`) the top caption names the type and the source charts instead of the name, e.g. "Solar return for Example" or "Composite for A and B", and a midpoint composite, having no moment, shows no date-time or timezone. On progressed and directed charts the top caption shows "for <target date>" (`meta.progression.target_date`) in place of the birth date-time, e.g. "Secondary progressed for Example · for 2027-06-15".
+Two captions sit outside the wheel: the name, local date-time and timezone at the top; the place, house system, zodiac (when sidereal) and any chart flags at the bottom. For a derived chart (`meta.chart_type` other than `natal`) the top caption names the type and the source charts instead of the name, e.g. "Solar return for Example" or "Composite for A and B", and a midpoint composite, having no moment, shows no date-time or timezone. On progressed and directed charts the top caption shows the target date (`meta.progression.target_date`) in place of the birth date-time, e.g. "Secondary progressed for Example · 2027-06-15".
 
 **Unknown birth time.** When `meta.time_unknown` is true the chart has no angles or houses, so the wheel rotates to put 0° Aries at 9 o'clock, draws no house ring, no angle lines and no aspects to the angles, and the bottom caption reads "Birth time unknown: houses not shown, Moon approximate". Everything else is drawn as usual.
 
@@ -95,7 +95,7 @@ See "Presenting the wheel" below.
 | Untimed charts | 0° Aries at 9 o'clock, no house ring, no angles |
 | Ring radii | Sign ring 340–380, house ring 300–340, glyphs at 270, labels at 240 (224 and 208 when staggered: `LABEL_STAGGER = 16`, `LABEL_LEVELS = 3`), aspect circle 210; the whole wheel is scaled by 0.85 about the centre so the captions clear it |
 | Aspect families | Opposition and square `#c0392b` (red); trine and sextile `#2e86c1` (blue); quincunx `#7f8c8d` (grey); conjunction not drawn |
-| Line style | Dashed `6 4` only when `applying` is `false`; `true` and `null` (aspects to angles) are solid |
+| Line style | Dashed `6 4` only when `applying` is `false`; `true` and `null` (aspects to angles, and every aspect of a solar arc directed chart) are solid |
 | Degree labels | `DEGREE_FONT = 12` user units, about 10px after the wheel scale; neighbours closer than `LABEL_PAD = 6` units step inward |
 | Glyph spacing | Minimum 6° between displayed glyphs (`MIN_GAP`); nudged glyphs get a lead line from the true tick |
 | Fonts | Named, not embedded: DejaVu Sans, Segoe UI Symbol, Noto Sans Symbols2, Apple Symbols, then sans-serif. Every sign and planet glyph carries the text-presentation selector U+FE0E so viewers do not swap in colour emoji |

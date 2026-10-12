@@ -221,8 +221,9 @@ def captions(chart: dict) -> str:
     progression = meta.get("progression")
     target = progression.get("target_date") if isinstance(progression, dict) else None
     if target:
-        # A progressed or directed chart keeps the birth timestamps; the date it is read for is what matters.
-        moment = f"for {target}"
+        # A progressed or directed chart keeps the birth timestamps; the date it is read for is its moment, shown
+        # bare like a return's date-time: "Secondary progressed for Example · 2027-06-15".
+        moment = str(target)
     elif chart_type in ("secondary_progressed", "solar_arc_directed"):
         # No usable target date: show no moment rather than the birth moment, which is not this chart's.
         moment = ""

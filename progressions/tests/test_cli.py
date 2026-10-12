@@ -190,6 +190,13 @@ def test_usage_errors_exit_1(tmp_path, args):
     assert not list(tmp_path.iterdir())
 
 
+def test_help_gives_the_date_format_and_aligned_usage():
+    text = pg.build_parser().format_help()
+    assert all(f"{flag} YYYY-MM-DD" in text for flag in ("--date", "--start", "--end"))
+    commented = [line for line in pg.__doc__.splitlines() if line.startswith("    python ") and "#" in line]
+    assert len(commented) == 3 and len({line.index("#") for line in commented}) == 1
+
+
 def test_usage_error_from_main_exits_1(capsys):
     with pytest.raises(SystemExit) as exc:
         pg.main([str(EXAMPLE), "--date", "2027-06-15", "--method", "solar-arc", "--angles", "naibod"])
@@ -343,6 +350,34 @@ def test_unreadable_chart_exits_1(tmp_path, content):
     assert "bad.json" in proc.stderr
 
 
+def drop_location(chart):
+    del chart["meta"]["location"]
+
+
+def string_moment(chart):
+    chart["meta"]["julian_day_ut"] = str(chart["meta"]["julian_day_ut"])
+
+
+def angles_without_houses(chart):
+    chart["houses"] = None
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("edit, error", [
+    (drop_location, "KeyError('location')"),
+    (string_moment, "TypeError("),
+    (angles_without_houses, "TypeError("),
+])
+def test_malformed_chart_exits_1_naming_the_file(tmp_path, mode, edit, error):
+    # A key the computation needs, missing or of the wrong type: one line naming the file, no traceback.
+    path = write_chart(tmp_path, "m.json", edit)
+    proc = run("m.json", *mode, "--out", "out", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert proc.stderr.startswith(f"progressions: m.json: malformed chart ({error}")
+    assert len(proc.stderr.splitlines()) == 1 and "Traceback" not in proc.stderr
+    assert sorted(p.name for p in tmp_path.iterdir()) == [path.name]
+
+
 # --- timeline mode ------------------------------------------------------------------------------
 
 @pytest.mark.needs_ephemeris          # without Chiron the run also prints Note: chiron_unavailable
@@ -414,6 +449,17 @@ def test_untimed_timeline_marks_uncertain_and_notes(tmp_path):
     assert len(lines) == 2 and lines[1].startswith("Note:") and "six months" in lines[1]
 
 
+def test_untimed_timeline_notes_ignored_angles(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(pg, "timeline", lambda natal, start, end, angles: [])
+    path = write_chart(tmp_path, "u.json", untimed)
+    monkeypatch.chdir(tmp_path)
+    assert pg.main([str(path), "--timeline", "--start", "2027-01-01", "--end", "2027-12-31", "--angles", "naibod"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == "Wrote 0 events to progressions_timeline.csv"
+    assert lines[-2:] == [pg.UNTIMED_NOTE,
+                          "Note: --angles ignored because the natal chart has no birth time, so no angles to progress"]
+
+
 def test_main_passes_clamped_start_and_angles(tmp_path, monkeypatch, capsys):
     seen = []
     monkeypatch.setattr(pg, "timeline", lambda natal, start, end, angles: seen.append((start, end, angles)) or [])
@@ -424,7 +470,8 @@ def test_main_passes_clamped_start_and_angles(tmp_path, monkeypatch, capsys):
     assert seen == [(dt.date(1990, 6, 15), dt.date(2050, 12, 31), "solar-arc"),
                     (dt.date(2027, 1, 1), dt.date(2027, 12, 31), "naibod")]
     assert (tmp_path / "progressions_timeline.csv").read_text(encoding="utf-8").splitlines() == [HEADER]
-    assert "Wrote 0 events to progressions_timeline.csv" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Wrote 0 events to progressions_timeline.csv" in out and "--angles ignored" not in out
 
 
 # --- committed examples -----------------------------------------------------------------------------
@@ -467,7 +514,8 @@ def run_sibling(path, *args, cwd):
 
 
 @pytest.mark.parametrize("method, caption", [
-    ("secondary", "Secondary progressed for Example"), ("solar-arc", "Solar arc directed for Example"),
+    ("secondary", "Secondary progressed for Example  ·  2027-06-15"),
+    ("solar-arc", "Solar arc directed for Example  ·  2027-06-15"),
 ])
 def test_round_trip_through_wheel_synastry_and_transits(tmp_path, method, caption):
     wheel = sibling("chart-wheel", "chart_wheel.py")
@@ -479,7 +527,7 @@ def test_round_trip_through_wheel_synastry_and_transits(tmp_path, method, captio
     proc = run_sibling(wheel, "p.json", "--out", "p.svg", cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
     svg = (tmp_path / "p.svg").read_text(encoding="utf-8")
-    assert caption in svg and "for 2027-06-15" in svg
+    assert caption in svg
 
     proc = run_sibling(synastry, "--a", "p.json", "--b", EXAMPLE, "--out", "syn.json", cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr

@@ -53,8 +53,7 @@ def test_progressed_caption_shows_target_date():
     chart["meta"]["progression"] = {"target_date": "2027-06-15", "age_years": 37.0001,
                                     "solar_arc": 35.2991, "angles_method": "solar-arc"}
     svg = cw.render(chart)
-    assert "Secondary progressed for Example" in svg
-    assert "for 2027-06-15" in svg
+    assert "Secondary progressed for Example  ·  2027-06-15" in svg
     assert "1990-06-15 12:00:00" not in svg
 ```
 
@@ -72,7 +71,7 @@ def test_progressed_chart_is_refused(tmp_path, capsys):
 **Step 2: Run** both folders → the two new tests fail.
 
 **Step 3: Implement.**
-- `captions`: when `meta.get("progression")` is truthy, the moment segment is `f"for {progression['target_date']}"` instead of the birth date-time and zone. Keep `_join_names` and escaping.
+- `captions`: when `meta.get("progression")` is truthy, the moment segment is the bare `progression['target_date']` instead of the birth date-time and zone, like a return's date-time ("Secondary progressed for Example · 2027-06-15"). Keep `_join_names` and escaping.
 - `returns.main`: after `load_chart`, if `meta.get("chart_type")` is `secondary_progressed` or `solar_arc_directed`, print `returns: this is a progressed or directed chart; cast returns from the natal chart` to stderr and return 1.
 - `CONTRACT.md`: add `secondary_progressed` and `solar_arc_directed` to the `chart_type` row; add a `progression` row (object or absent; `{target_date, age_years, solar_arc, angles_method}`, written by progressions; `angles_method` null for a directed chart; the birth timestamps are kept); add progressions to the consumer paragraph.
 
@@ -165,7 +164,7 @@ def test_sidereal_identity(tmp_path):
 Secondary progressions and solar arc directions from a natal chart.json.
 
 Usage:
-    python progressions.py chart.json --date 2027-06-15                       # secondary progressed chart
+    python progressions.py chart.json --date 2027-06-15                      # secondary progressed chart
     python progressions.py chart.json --date 2027-06-15 --angles naibod      # Naibod angles
     python progressions.py chart.json --date 2027-06-15 --method solar-arc   # solar arc directed chart
     python progressions.py chart.json --timeline --start 2027-01-01 --end 2036-12-31
@@ -186,7 +185,8 @@ EPHE_DIRS = (Path(__file__).resolve().parents[1] / "ephe",
 # built-in Moshier ephemeris, which has no Chiron.
 EPHE_DIR = next((d for d in EPHE_DIRS if (d / "seas_18.se1").exists()), EPHE_DIRS[0])
 swe.set_ephe_path(str(EPHE_DIR))
-# Lahiri is the project-wide ayanamsa; FLG_SIDEREAL on each call selects the zodiac.
+# Lahiri is the project-wide ayanamsa, set once here (nothing in this script changes it); FLG_SIDEREAL on each
+# call selects the zodiac.
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 
 SCHEMA_VERSION = 1
@@ -275,7 +275,6 @@ def ayanamsa(jd: float, zodiac: str) -> float:
     matches natal-chart's sidereal output (get_ayanamsa_ut is the mean value, up to ~0.005° off); 0 for tropical."""
     if not str(zodiac).startswith("sidereal"):
         return 0.0
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
     return swe.get_ayanamsa_ex_ut(jd, swe.FLG_SWIEPH)[1]
 
 
@@ -548,7 +547,9 @@ def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd:
     meta["derived_from"] = [natal["meta"]["name"]]
     lost = {"chiron_unavailable"} if set(natal["bodies"]) - set(raw) else set()
     meta["flags"] = sorted(set(meta.get("flags", [])) | set(houses["flags"] if houses else []) | lost)
-    meta["source"] = {**(meta.get("source") or {}), "ephemeris_files": ephemeris_files_present()}
+    # The positions come from this run's pyswisseph, so its version and ephemeris replace the natal cast's.
+    meta["source"] = {**(meta.get("source") or {}), "library": "pyswisseph", "version": swe.version,
+                      "ephemeris_files": ephemeris_files_present()}
     meta["progression"] = {"target_date": jd_to_local_date(tjd, meta["timezone"]).isoformat(),
                            "age_years": round((tjd - meta["julian_day_ut"]) / YEAR, 4),
                            "solar_arc": round(arc, 4), "angles_method": angles_method}
@@ -951,6 +952,14 @@ secondary); missing ephemeris files handled as natal-chart does (`chiron_unavail
 for the run, progressed Chiron's timeline rows left out with a Note); every output's folder checked before anything
 is computed; hard links to the input refused; the untimed `moon_range` edges clamped to age 0 on the birth date; an
 empty or null `chart_type` refused. Each has a test in `progressions/tests`.
+
+A final polish round: `meta.source.version` is the running pyswisseph's; a chart missing a key the computation
+needs, or holding the wrong type, exits 1 with `progressions: <path>: malformed chart (<error>)` instead of a bare
+key name or a traceback; the timeline prints the `--angles ignored` Note for an untimed chart as chart mode does;
+the wheel caption reads "Secondary progressed for Example · 2027-06-15". The grid-phase test now shifts the scan
+margins by fractions of a step instead of running ~43 one-day timelines, tests that need the Swiss files skip
+without them, and a test runs the README commands and compares the output with the committed examples byte for
+byte.
 
 ## Out of scope
 

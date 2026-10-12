@@ -3,7 +3,7 @@
 Secondary progressions and solar arc directions from a natal chart.json.
 
 Usage:
-    python progressions.py chart.json --date 2027-06-15                       # secondary progressed chart
+    python progressions.py chart.json --date 2027-06-15                      # secondary progressed chart
     python progressions.py chart.json --date 2027-06-15 --angles naibod      # Naibod angles
     python progressions.py chart.json --date 2027-06-15 --method solar-arc   # solar arc directed chart
     python progressions.py chart.json --timeline --start 2027-01-01 --end 2036-12-31
@@ -33,7 +33,8 @@ EPHE_DIRS = (Path(__file__).resolve().parents[1] / "ephe",
 # built-in Moshier ephemeris, which has no Chiron.
 EPHE_DIR = next((d for d in EPHE_DIRS if (d / "seas_18.se1").exists()), EPHE_DIRS[0])
 swe.set_ephe_path(str(EPHE_DIR))
-# Lahiri is the project-wide ayanamsa; FLG_SIDEREAL on each call selects the zodiac.
+# Lahiri is the project-wide ayanamsa, set once here (nothing in this script changes it); FLG_SIDEREAL on each
+# call selects the zodiac.
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 
 SCHEMA_VERSION = 1
@@ -122,7 +123,6 @@ def ayanamsa(jd: float, zodiac: str) -> float:
     matches natal-chart's sidereal output (get_ayanamsa_ut is the mean value, up to ~0.005° off); 0 for tropical."""
     if not str(zodiac).startswith("sidereal"):
         return 0.0
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
     return swe.get_ayanamsa_ex_ut(jd, swe.FLG_SWIEPH)[1]
 
 
@@ -302,7 +302,9 @@ def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd:
     meta["derived_from"] = [natal["meta"]["name"]]
     lost = {"chiron_unavailable"} if set(natal["bodies"]) - set(raw) else set()
     meta["flags"] = sorted(set(meta.get("flags", [])) | set(houses["flags"] if houses else []) | lost)
-    meta["source"] = {**(meta.get("source") or {}), "ephemeris_files": ephemeris_files_present()}
+    # The positions come from this run's pyswisseph, so its version and ephemeris replace the natal cast's.
+    meta["source"] = {**(meta.get("source") or {}), "library": "pyswisseph", "version": swe.version,
+                      "ephemeris_files": ephemeris_files_present()}
     meta["progression"] = {"target_date": jd_to_local_date(tjd, meta["timezone"]).isoformat(),
                            "age_years": round((tjd - meta["julian_day_ut"]) / YEAR, 4),
                            "solar_arc": round(arc, 4), "angles_method": angles_method}
@@ -598,6 +600,7 @@ UNTIMED_NOTE = ("Note: the birth time is unknown, so every secondary event may f
                 "year), and solar arc events involving the Moon, Sun, Mercury, Venus or Mars shift with those natal "
                 "positions, by months (years for the Moon); those rows are marked Uncertain, and angle and house "
                 "events are left out")
+ANGLES_IGNORED_NOTE = "Note: --angles ignored because the natal chart has no birth time, so no angles to progress"
 
 
 def derived_type(meta: dict) -> str | None:
@@ -623,10 +626,11 @@ def same_file(a: Path, b: Path) -> bool:
 def build_parser() -> argparse.ArgumentParser:
     p = Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("chart", type=Path, help="natal chart.json")
-    p.add_argument("--date", type=dt.date.fromisoformat, help="target date for a progressed or directed chart")
+    p.add_argument("--date", type=dt.date.fromisoformat, metavar="YYYY-MM-DD",
+                   help="target date for a progressed or directed chart")
     p.add_argument("--timeline", action="store_true", help="write a CSV of dated events from --start to --end")
-    p.add_argument("--start", type=dt.date.fromisoformat, help="first date of the timeline")
-    p.add_argument("--end", type=dt.date.fromisoformat, help="last date of the timeline")
+    p.add_argument("--start", type=dt.date.fromisoformat, metavar="YYYY-MM-DD", help="first date of the timeline")
+    p.add_argument("--end", type=dt.date.fromisoformat, metavar="YYYY-MM-DD", help="last date of the timeline")
     p.add_argument("--method", choices=["secondary", "solar-arc"], help="chart technique (default: secondary)")
     p.add_argument("--angles", choices=["solar-arc", "naibod"],
                    help="how secondary progressed angles move (default: solar-arc)")
@@ -663,7 +667,7 @@ def run_chart(args, natal: dict, out: Path, grid_path: Path) -> int:
     for flag in chart["meta"]["flags"]:
         print(f"Note: {flag}")
     if args.angles and not chart.get("angles"):
-        print("Note: --angles ignored because the natal chart has no birth time, so no angles to progress")
+        print(ANGLES_IGNORED_NOTE)
     return 0
 
 
@@ -687,6 +691,8 @@ def run_timeline(args, natal: dict, out: Path) -> int:
         print("Note: chiron_unavailable")
     if not natal.get("angles"):
         print(UNTIMED_NOTE)
+        if args.angles:
+            print(ANGLES_IGNORED_NOTE)
     return 0
 
 
@@ -749,7 +755,12 @@ def main(argv=None) -> int:
 
     try:
         return run_timeline(args, natal, out) if args.timeline else run_chart(args, natal, out, grid_path)
-    except (OSError, ValueError, KeyError, swe.Error) as exc:
+    except (KeyError, TypeError, AttributeError) as exc:
+        # A key the computation needs is missing or holds the wrong type (a hand-edited or foreign file): name
+        # the file and the error, rather than print a bare key name or a traceback.
+        print(f"progressions: {args.chart}: malformed chart ({exc!r})", file=sys.stderr)
+        return 1
+    except (OSError, ValueError, swe.Error) as exc:
         print(exc, file=sys.stderr)
         return 1
 

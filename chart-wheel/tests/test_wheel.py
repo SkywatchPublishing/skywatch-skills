@@ -269,8 +269,7 @@ def test_progressed_caption_shows_target_date():
     chart["meta"]["progression"] = {"target_date": "2027-06-15", "age_years": 37.0001,
                                     "solar_arc": 35.2991, "angles_method": "solar-arc"}
     svg = cw.render(chart)
-    assert "Secondary progressed for Example" in svg
-    assert "for 2027-06-15" in svg
+    assert texts(ET.fromstring(svg), "caption")[0].text == "Secondary progressed for Example  ·  2027-06-15"
     assert "1990-06-15 12:00:00" not in svg
 
 
@@ -286,15 +285,13 @@ def test_directed_caption_shows_target_date():
     chart = _progressed("solar_arc_directed", {"target_date": "2027-06-15", "age_years": 37.0001,
                                                "solar_arc": 35.2991, "angles_method": None})
     top = texts(render_root(chart), "caption")[0].text
-    assert "Solar arc directed for Example" in top
-    assert "for 2027-06-15" in top
-    assert "1990-06-15" not in top
+    assert top == "Solar arc directed for Example  ·  2027-06-15"
 
 
 def test_target_date_with_xml_specials_is_escaped():
     chart = _progressed("secondary_progressed", {"target_date": "<&>"})
     top = texts(render_root(chart), "caption")[0].text
-    assert top.endswith("for <&>")
+    assert top.endswith("  ·  <&>")
 
 
 def test_empty_progression_on_progressed_chart_shows_no_birth_moment():
