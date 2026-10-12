@@ -163,6 +163,54 @@ def test_midpoint_composite_is_refused_via_main(tmp_path, capsys, monkeypatch):
     assert not list(tmp_path.glob("*.json"))
 
 
+def _record_natal_calls(monkeypatch):
+    """Wrap the real natal-chart delegation so each call's argv is recorded."""
+    import returns as rt
+    calls = []
+    real = rt._run_natal
+
+    def recording(natal_script, args):
+        calls.append(list(args))
+        real(natal_script, args)
+
+    monkeypatch.setattr(rt, "_run_natal", recording)
+    return rt, calls
+
+
+def test_lat_lon_without_tz_pins_resolved_zone_on_every_cast(tmp_path, monkeypatch):
+    rt, calls = _record_natal_calls(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    code = rt.main([str(EXAMPLE), "--body", "moon", "--start", "2027-01-01", "--end", "2027-02-28",
+                    "--lat", "30.2672", "--lon", "-97.7431"])
+    assert code == 0
+    assert len(calls) == 2
+    for argv in calls:
+        assert argv.count("--tz") == 1, argv
+        assert argv[argv.index("--tz") + 1] == "America/Chicago"
+
+
+@pytest.mark.parametrize("place", [["--city", "Austin, TX"], ["--geonameid", "4671654"]])
+def test_city_or_geonameid_place_never_gets_tz(tmp_path, monkeypatch, place):
+    rt, calls = _record_natal_calls(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    code = rt.main([str(EXAMPLE), "--start", "2027-01-01", "--end", "2027-12-31", *place])
+    assert code == 0
+    assert len(calls) == 2   # the timezone probe, then the one solar return
+    assert all("--tz" not in argv for argv in calls)
+
+
+def test_natal_place_fallback_passes_chart_tz_once(tmp_path, monkeypatch):
+    chart = json.loads(EXAMPLE.read_text())
+    chart["meta"]["location"]["geonameid"] = None   # forces the --lat/--lon/--tz fallback
+    p = tmp_path / "c.json"; p.write_text(json.dumps(chart))
+    rt, calls = _record_natal_calls(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    code = rt.main([str(p), "--start", "2027-01-01", "--end", "2027-12-31"])
+    assert code == 0
+    assert len(calls) == 1
+    assert calls[0].count("--tz") == 1 and calls[0][calls[0].index("--tz") + 1] == "America/New_York"
+
+
 @pytest.mark.parametrize("extra_meta", [
     {"chart_type": "secondary_progressed"},
     {"chart_type": "solar_arc_directed"},

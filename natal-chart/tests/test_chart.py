@@ -1,4 +1,6 @@
 import datetime as dt
+from zoneinfo import ZoneInfo
+
 import pytest
 import chart as ch
 
@@ -39,6 +41,39 @@ def test_build_chart_known_time():
     assert c["houses"]["system"] == "placidus"
     assert 1 <= c["bodies"]["Sun"]["house"] <= 12
     assert any(a["aspect"] for a in c["aspects"])
+
+
+AMSTERDAM = {"name": "Amsterdam, NL", "latitude": 52.374, "longitude": 4.8897, "geonameid": 2759794}
+CHICAGO = {"name": "Chicago, IL, US", "latitude": 41.85, "longitude": -87.65, "geonameid": 4887398}
+# A tz database built without backzone data links Europe/Amsterdam to Europe/Brussels (+00:00 in 1900).
+needs_amsterdam_lmt = pytest.mark.skipif(
+    dt.datetime(1900, 1, 1, 12, tzinfo=ZoneInfo("Europe/Amsterdam")).utcoffset() != dt.timedelta(minutes=19, seconds=32),
+    reason="tz database has no Amsterdam local mean time")
+
+
+@pytest.mark.parametrize("date, time, tz, location, offset, utc", [
+    # Local mean time before standard time carries seconds; they round to the nearest minute.
+    (dt.date(1880, 3, 1), dt.time(10, 0), "America/New_York", NY, "-04:56", "1880-03-01T14:56:02Z"),  # -04:56:02
+    pytest.param(dt.date(1900, 1, 1), dt.time(12, 0), "Europe/Amsterdam", AMSTERDAM, "+00:20", "1900-01-01T11:40:28Z",
+                 marks=needs_amsterdam_lmt),  # +00:19:32
+    (dt.date(1880, 3, 1), dt.time(10, 0), "America/Chicago", CHICAGO, "-05:51", "1880-03-01T15:50:36Z"),  # -05:50:36
+    (dt.date(2024, 7, 4), dt.time(12, 0), "America/New_York", NY, "-04:00", "2024-07-04T16:00:00Z"),
+])
+def test_utc_offset_is_hh_mm_rounded_to_the_minute(date, time, tz, location, offset, utc):
+    meta = ch.build_chart("Test", date, time, tz, location, "placidus")["meta"]
+    assert meta["utc_offset"] == offset
+    assert meta["datetime_utc"] == utc  # the exact instant keeps its seconds
+
+
+@pytest.mark.parametrize("seconds, label", [
+    (-(4 * 3600 + 59 * 60 + 30), "-05:00"),  # negative, rounds up across the hour
+    (-(17 * 60 + 30), "-00:18"),  # a half minute rounds away from zero on either side
+    (17 * 60 + 30, "+00:18"),
+    (-20, "+00:00"),  # rounds to zero: no "-00:00"
+    (5 * 3600 + 30 * 60, "+05:30"),
+])
+def test_format_utc_offset(seconds, label):
+    assert ch.format_utc_offset(dt.timedelta(seconds=seconds)) == label
 
 
 def test_build_chart_unknown_time():

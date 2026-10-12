@@ -1,5 +1,7 @@
 import json
 import math
+import subprocess
+import sys
 from pathlib import Path
 import pytest
 import swisseph as swe
@@ -7,6 +9,7 @@ import composite as cp
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "natal-chart" / "examples" / "chart.json"
 PARTNER = Path(__file__).resolve().parents[2] / "synastry" / "examples" / "chart_b.json"
+NATAL = Path(__file__).resolve().parents[2] / "natal-chart" / "scripts" / "natal_chart.py"
 
 
 def test_short_arc_midpoint():
@@ -108,3 +111,59 @@ def test_mismatches_and_flags(make, expect):
         assert c["bodies"]["Moon"]["house"] is None and c["meta"]["moon_range"] is None
     else:
         assert "Chiron" not in c["bodies"] and "chiron_unavailable" in c["meta"]["flags"]
+
+
+@pytest.fixture(scope="module")
+def cast_pairs(tmp_path_factory):
+    """The two example births cast through natal-chart in each zodiac: {zodiac: (a, b)}."""
+    tmp = tmp_path_factory.mktemp("zodiacs")
+    pairs = {}
+    for zodiac in ("tropical", "sidereal"):
+        charts = []
+        for src in (EXAMPLE, PARTNER):
+            meta = json.loads(src.read_text())["meta"]
+            date, time = meta["datetime_local"].split("T")
+            loc = meta["location"]
+            out = tmp / f"{meta['name']}_{zodiac}.json"
+            subprocess.run([sys.executable, "-I", str(NATAL), "--name", meta["name"], "--date", date,
+                            "--time", time, "--lat", str(loc["latitude"]), "--lon", str(loc["longitude"]),
+                            "--tz", meta["timezone"], "--zodiac", zodiac,
+                            "--out", str(out), "--grid", str(out.with_suffix(".md"))],
+                           check=True, capture_output=True)
+            charts.append(json.loads(out.read_text()))
+        pairs[zodiac] = tuple(charts)
+    return pairs
+
+
+@pytest.mark.parametrize("system, latitude", [
+    ("placidus", None),
+    ("whole_sign", None),
+    ("placidus", 75.0),  # polar: falls back to whole sign
+])
+def test_sidereal_composite_houses_are_tropical_minus_ayanamsa(cast_pairs, system, latitude):
+    (ta, tb), (sa, sb) = cast_pairs["tropical"], cast_pairs["sidereal"]
+    reference = dict(ta["meta"]["location"])
+    if latitude is not None:
+        reference["latitude"] = latitude
+    t = cp.midpoint_chart(ta, tb, reference=reference, house_system=system)
+    s = cp.midpoint_chart(sa, sb, reference=reference, house_system=system)
+    assert s["meta"]["zodiac"] == "sidereal_lahiri"
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    aya = swe.get_ayanamsa_ex_ut(s["meta"]["julian_day_ut"], swe.FLG_SWIEPH)[1]
+    assert cp.separation(s["bodies"]["Sun"]["longitude"], t["bodies"]["Sun"]["longitude"] - aya) < 0.01
+    for key in ("mc", "ascendant"):
+        assert cp.separation(s["angles"][key], t["angles"][key] - aya) < 0.01, key
+    assert s["houses"]["system"] == t["houses"]["system"]
+    if latitude is not None:
+        assert "polar_fallback_whole_sign" in s["meta"]["flags"]
+    cusps = s["houses"]["cusps"]
+    if s["houses"]["system"] == "whole_sign":
+        assert all(c % 30 == 0 for c in cusps), cusps
+        assert cusps[0] == s["angles"]["ascendant"] // 30 * 30
+    else:
+        for ct, cs in zip(t["houses"]["cusps"], cusps):
+            assert cp.separation(cs, ct - aya) < 0.01
+        # Bodies and cusps shift by the same ayanamsa, so every body keeps its tropical house.
+        assert {n: x["house"] for n, x in s["bodies"].items()} == {n: x["house"] for n, x in t["bodies"].items()}
+    for body in s["bodies"].values():
+        assert body["house"] == cp.house_of(body["longitude"], cusps)
