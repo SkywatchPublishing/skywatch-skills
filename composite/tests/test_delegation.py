@@ -9,14 +9,21 @@ import composite as cp
 EXAMPLE = Path(__file__).resolve().parents[2] / "natal-chart" / "examples" / "chart.json"
 PARTNER = Path(__file__).resolve().parents[2] / "synastry" / "examples" / "chart_b.json"
 
-# Stands in for natal_chart.py: records how it was launched in a minimal chart at --out.
+# Stands in for natal_chart.py: records how it was launched in a minimal chart at --out. Like the real
+# script it reports the moment it was asked to cast, which cast_davison checks for a timed chart.
 STAND_IN = """\
-import json, sys
-out = sys.argv[max(i for i, a in enumerate(sys.argv) if a == "--out") + 1]
+import datetime, json, sys, zoneinfo
+args = sys.argv
+def arg(flag):
+    return args[max(i for i, a in enumerate(args) if a == flag) + 1] if flag in args else None
 launch = {"argv": sys.orig_argv, "no_user_site": sys.flags.no_user_site, "safe_path": sys.flags.safe_path}
 chart = {"schema_version": 1, "meta": {"name": "stand-in", "location": {"launch": launch}, "launch": launch},
          "bodies": {"Sun": {"longitude": 0.0}}}
-open(out, "w", encoding="utf-8").write(json.dumps(chart))
+if arg("--time") and arg("--tz"):
+    local = datetime.datetime.fromisoformat(arg("--date") + "T" + arg("--time")).replace(
+        tzinfo=zoneinfo.ZoneInfo(arg("--tz")), fold=int(arg("--fold") or 0))
+    chart["meta"]["julian_day_ut"] = 2440587.5 + local.timestamp() / 86400
+open(arg("--out"), "w", encoding="utf-8").write(json.dumps(chart))
 """
 
 
