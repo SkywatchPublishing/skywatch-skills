@@ -18,6 +18,7 @@ Each skill is a self-contained folder you can drop into `.claude/skills/` and us
 | [synastry](synastry/) | Two charts compared: every inter-aspect with orbs, house overlays in both directions, as `synastry.json` and a Markdown grid | `cp -r synastry ~/.claude/skills/` |
 | [returns](returns/) | Solar, lunar and outer-planet return charts found to the second for any date range and cast for the place the person will be, each as an ordinary `chart.json` with its aspect grid, plus a summary against the natal chart | `cp -r returns ~/.claude/skills/` |
 | [composite](composite/) | The chart of a relationship from two charts: a midpoint composite or a Davison chart, as a `chart.json` with a Markdown aspect grid | `cp -r composite ~/.claude/skills/` |
+| [progressions](progressions/) | A natal chart moved forward by secondary progressions and solar arc directions: a progressed or directed `chart.json` for any date with its aspect grid, and a dated CSV timeline of progressed and directed aspects to the natal chart, ingresses and stations, each aspect with its 1° window | `cp -r progressions ~/.claude/skills/` |
 
 More skills are added as they are proven in daily use.
 
@@ -31,7 +32,7 @@ Every skill in this collection follows the same shape:
 - **`README.md`** explains the skill to a human reader: what it does, how to install it, and why it exists.
 - **`tests/`** checks the scripts against independent published sources where one exists (astro.com chart tables, U.S. Naval Observatory Moon phases) and pins the committed examples.
 
-The chart skills share one file format. `natal-chart` writes `chart.json`, and [`natal-chart/CONTRACT.md`](natal-chart/CONTRACT.md) documents it field by field; `chart-wheel`, `transits-to-natal`, `synastry`, `returns` and `composite` read that file rather than recomputing anything, so the folders stay copyable on their own and always agree with each other. `returns` and `composite` also write it: a return chart, a midpoint composite or a Davison chart is a `chart.json` whose `meta.chart_type` says what it is (`solar_return`, `composite`, `davison`, ...) and whose `meta.derived_from` names the source charts, so the wheel, the transit scan and synastry take derived charts unchanged.
+The chart skills share one file format. `natal-chart` writes `chart.json`, and [`natal-chart/CONTRACT.md`](natal-chart/CONTRACT.md) documents it field by field; `chart-wheel`, `transits-to-natal`, `synastry`, `returns`, `composite` and `progressions` read that file rather than recomputing anything, so the folders stay copyable on their own and always agree with each other. `returns`, `composite` and `progressions` also write it: a return chart, a midpoint composite, a Davison chart or a progressed or directed chart is a `chart.json` whose `meta.chart_type` says what it is (`solar_return`, `composite`, `davison`, `secondary_progressed`, ...) and whose `meta.derived_from` names the source charts, so the wheel, the transit scan and synastry take derived charts unchanged.
 
 Skills are tested against the sort of request a working astrologer or publisher actually makes, and the trigger descriptions are tuned so the skill fires on plain language ("what aspects are active next month") rather than requiring the right keyword.
 
@@ -42,7 +43,7 @@ Requires Python 3.11 or newer.
 ```bash
 git clone https://github.com/SkywatchPublishing/skywatch-skills
 cp -r skywatch-skills/astrology-ephemeris skywatch-skills/aspectarian ~/.claude/skills/
-cp -r skywatch-skills/natal-chart skywatch-skills/chart-wheel skywatch-skills/transits-to-natal skywatch-skills/synastry skywatch-skills/returns skywatch-skills/composite ~/.claude/skills/
+cp -r skywatch-skills/natal-chart skywatch-skills/chart-wheel skywatch-skills/transits-to-natal skywatch-skills/synastry skywatch-skills/returns skywatch-skills/composite skywatch-skills/progressions ~/.claude/skills/
 
 pip install pyswisseph timezonefinder   # astrology-ephemeris and the chart skills
 pip install skyfield                    # aspectarian
@@ -52,7 +53,7 @@ python ~/.claude/skills/aspectarian/scripts/fetch_ephemeris.py   # JPL DE440s, 3
 
 Install only what you use: `chart-wheel` needs no packages at all, and `timezonefinder` is used only for places given as raw coordinates without a time zone, and for Davison charts.
 
-Each fetch script downloads into the `ephe/` folder beside it, so run the copy in your skills folder, not the one in the clone. The chart skills read the Swiss files from the installed `natal-chart/ephe/`; without them they fall back to the built-in Moshier ephemeris and leave Chiron out. `chart-wheel`, `transits-to-natal` and `synastry` run on their own from an existing `chart.json`; `natal-chart` is needed to produce that file, so install it alongside them unless you already have charts. `returns` and `composite` read `chart.json` and also delegate every cast to `natal-chart` (each return moment, each Davison chart, and raw birth data or a city reference), so they need `natal-chart` installed beside them in the same parent folder.
+Each fetch script downloads into the `ephe/` folder beside it, so run the copy in your skills folder, not the one in the clone. The chart skills read the Swiss files from the installed `natal-chart/ephe/`; without them they fall back to the built-in Moshier ephemeris and leave Chiron out. `chart-wheel`, `transits-to-natal` and `synastry` run on their own from an existing `chart.json`; `natal-chart` is needed to produce that file, so install it alongside them unless you already have charts. `returns` and `composite` read `chart.json` and also delegate every cast to `natal-chart` (each return moment, each Davison chart, and raw birth data or a city reference), so they need `natal-chart` installed beside them in the same parent folder. `progressions` reads a natal `chart.json`, needs only pyswisseph and delegates nothing to `natal-chart`; install it beside `natal-chart` anyway, to cast the chart it reads and to share the ephemeris files (without them it falls back to the built-in Moshier ephemeris and leaves progressed Chiron out).
 
 `aspectarian` uses Skyfield and NASA JPL's DE440s ephemeris instead of the Swiss Ephemeris, so it needs only its own fetch above.
 
