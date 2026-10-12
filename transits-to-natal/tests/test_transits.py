@@ -1,6 +1,8 @@
 import csv
 import datetime as dt
+from zoneinfo import ZoneInfo
 
+import pytest
 import swisseph as swe
 
 import transits as tr
@@ -78,6 +80,34 @@ def test_csv_offset_follows_dst_per_row(tmp_path):
     by_date = {r["Date"]: r["UTC Offset"] for r in parsed}
     assert by_date["2026-10-31"] == "-04:00"
     assert by_date["2026-11-01"] == "-05:00"
+
+
+# A tz database built without backzone data links Europe/Amsterdam to Europe/Brussels (+00:00 in 1900).
+needs_amsterdam_lmt = pytest.mark.skipif(
+    dt.datetime(1900, 1, 1, 12, tzinfo=ZoneInfo("Europe/Amsterdam")).utcoffset() != dt.timedelta(minutes=19, seconds=32),
+    reason="tz database has no Amsterdam local mean time")
+
+
+@pytest.mark.parametrize("date, tz, label", [
+    # Local mean time before standard time carries seconds; they round to the nearest minute.
+    (dt.date(1880, 3, 1), "America/New_York", "-04:56"),  # -04:56:02
+    pytest.param(dt.date(1900, 1, 1), "Europe/Amsterdam", "+00:20", marks=needs_amsterdam_lmt),  # +00:19:32
+    (dt.date(1880, 3, 1), "America/Chicago", "-05:51"),  # -05:50:36
+    (dt.date(2024, 7, 4), "America/New_York", "-04:00"),
+])
+def test_utc_offset_label_rounds_historic_seconds_to_the_minute(date, tz, label):
+    assert tr.utc_offset_label(date, tz) == label
+
+
+@pytest.mark.parametrize("seconds, label", [
+    (-(4 * 3600 + 59 * 60 + 30), "-05:00"),  # negative, rounds up across the hour
+    (-(17 * 60 + 30), "-00:18"),  # a half minute rounds away from zero on either side
+    (17 * 60 + 30, "+00:18"),
+    (-20, "+00:00"),  # rounds to zero: no "-00:00"
+    (5 * 3600 + 30 * 60, "+05:30"),
+])
+def test_format_utc_offset(seconds, label):
+    assert tr.format_utc_offset(dt.timedelta(seconds=seconds)) == label
 
 
 def test_sidereal_lahiri_shifts_saturn_by_ayanamsa():

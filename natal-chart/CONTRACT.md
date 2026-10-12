@@ -32,7 +32,7 @@ refuses a chart whose `meta.timezone` is null (a midpoint `composite`), since it
 | `datetime_local` | string or null | ISO 8601 local wall-clock time, no offset, e.g. `1990-06-15T12:00:00`. Noon when the time is unknown. A wall-clock time that occurs twice at a DST fall-back is disambiguated by `--fold` (0 first occurrence, 1 second); `utc_offset` and `datetime_utc` show which was used. A midpoint `composite` chart has no real moment and carries `null` here and in `timezone`, `datetime_utc` and `utc_offset`; `davison` and every return carry real values. |
 | `timezone` | string or null | IANA zone used, e.g. `America/New_York`. `null` for a midpoint `composite`. |
 | `datetime_utc` | string or null | ISO 8601 UTC with trailing `Z`. `null` for a midpoint `composite`. |
-| `utc_offset` | string or null | Offset in force at birth, `+HH:MM` / `-HH:MM`. `null` for a midpoint `composite`. |
+| `utc_offset` | string or null | Offset in force at birth, `+HH:MM` / `-HH:MM`. An offset with seconds (historic local mean time, e.g. New York's `-04:56:02` in 1880) is rounded to the nearest minute (`-04:56`); `datetime_utc` and `julian_day_ut` keep the exact instant. `null` for a midpoint `composite`. |
 | `return_utc` | string | ISO 8601 UTC with trailing `Z`, present only on return charts: the exact return moment, which `datetime_utc` matches to the second. |
 | `julian_day_ut` | float | Julian day (UT), 7 decimals. |
 | `time_unknown` | bool | True when no `--time` was given; the chart was cast at local noon. |
