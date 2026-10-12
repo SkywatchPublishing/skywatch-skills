@@ -148,7 +148,7 @@ A midpoint composite is not a moment in time: do not describe it as "the sky on"
 | Input | Two `chart.json` files with `schema_version: 1`, from `natal-chart`, sharing zodiac and node | `load_chart()`, `midpoint_chart()`, `cast_davison()` |
 | Midpoint | Shorter arc; an exactly antipodal pair takes the smaller longitude plus 90°; symmetric in A and B | `midpoint()` |
 | Composite MC | Midpoint of the two MCs (Robert Hand convention) | `midpoint_chart()` |
-| Composite houses | `swe.houses_armc(armc, lat, eps, code)` with `armc = atan2(sin(MC)·cos(eps), cos(MC))` and the obliquity at the mean Julian day; whole-sign fallback flagged `polar_fallback_whole_sign` at polar latitudes | `armc_from_mc()`, `houses_from_mc()` |
+| Composite houses | `swe.houses_armc(armc, lat, eps, code)` with `armc = atan2(sin(MC)·cos(eps), cos(MC))` and the obliquity at the mean Julian day; whole-sign fallback flagged `polar_fallback_whole_sign` at polar latitudes. Sidereal charts: the Lahiri ayanamsa with nutation at the mean Julian day is added to the MC first and subtracted from the angles and cusps, and whole-sign cusps start at the sidereal Ascendant's sign | `armc_from_mc()`, `lahiri_ayanamsa()`, `houses_from_mc()` |
 | Composite aspects | Bodies plus Ascendant and MC (the Ascendant-MC pair excluded), natal orb table, `applying` always `null` | `find_aspects()` |
 | Davison moment | Mean of the two `datetime_utc` instants, to the second | `davison_inputs()` |
 | Davison place | Great-circle midpoint of the two `meta.location` coordinates; exactly antipodal birthplaces have no unique midpoint and exit 1 | `great_circle_midpoint()` |
