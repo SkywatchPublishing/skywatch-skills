@@ -184,7 +184,7 @@ def _settings_args(meta: dict) -> list[str]:
 
 
 def _run_natal(natal_script: Path, args: list[str]) -> None:
-    r = subprocess.run([sys.executable, "-I", str(natal_script), *args], capture_output=True, text=True, timeout=120)
+    r = subprocess.run([sys.executable, "-P", str(natal_script), *args], capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         raise DelegationFailed(r.returncode, r.stdout, r.stderr)
     sys.stderr.write(r.stderr)

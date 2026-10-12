@@ -383,7 +383,7 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
         tz, extra_flags = "UTC", ["davison_timezone_utc"]
     local = when.astimezone(ZoneInfo(tz))
 
-    cmd = [sys.executable, "-I", str(natal_script),
+    cmd = [sys.executable, "-P", str(natal_script),
            "--name", f"{ma['name']} & {mb['name']}",
            "--date", local.strftime("%Y-%m-%d")]
     if not (_time_unknown(a) or _time_unknown(b)):
@@ -452,7 +452,7 @@ def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
         words = shlex.split(birth)
     except ValueError as exc:
         raise ValueError(f"cannot parse birth arguments {birth!r}: {exc}") from exc
-    cmd = [sys.executable, "-I", str(natal_script), *words,
+    cmd = [sys.executable, "-P", str(natal_script), *words,
            "--out", str(out), "--grid", str(out.with_suffix(".md"))]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
@@ -482,7 +482,7 @@ def resolve_reference(args, a: dict, natal_script: Path | None, tmp: Path) -> di
         return a["meta"]["location"]
     if natal_script is None:
         raise ValueError(BIRTH_MISSING)
-    cmd = [sys.executable, "-I", str(natal_script), "--name", "probe", "--date", "2000-01-01"]
+    cmd = [sys.executable, "-P", str(natal_script), "--name", "probe", "--date", "2000-01-01"]
     cmd += ["--geonameid", str(args.geonameid)] if args.geonameid else ["--city", args.city]
     out = tmp / "reference.json"
     cmd += ["--out", str(out), "--grid", str(out.with_suffix(".md"))]
