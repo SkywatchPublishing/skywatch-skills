@@ -78,3 +78,17 @@ def test_cli_geonameid_combined_with_coordinates_exits_1(tmp_path):
     r = run("--name", "T", "--date", "1990-06-15", "--geonameid", "2643743", "--lat", "51.5", "--lon", "-0.13", cwd=tmp_path)
     assert r.returncode == 1
     assert "exactly one" in r.stderr
+
+
+def test_cli_fold_disambiguates_repeated_hour(tmp_path):
+    # 2027-11-07 01:30 in New York happens twice: EDT (05:30Z) then EST (06:30Z).
+    common = ("--name", "T", "--date", "2027-11-07", "--time", "01:30", "--geonameid", "5128581")
+    r = run(*common, "--out", "a.json", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    a = json.loads((tmp_path / "a.json").read_text())["meta"]
+    assert a["datetime_utc"] == "2027-11-07T05:30:00Z" and a["utc_offset"] == "-04:00"
+    r = run(*common, "--fold", "1", "--out", "b.json", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    b = json.loads((tmp_path / "b.json").read_text())["meta"]
+    assert b["datetime_utc"] == "2027-11-07T06:30:00Z" and b["utc_offset"] == "-05:00"
+    assert b["datetime_local"] == a["datetime_local"] == "2027-11-07T01:30:00"

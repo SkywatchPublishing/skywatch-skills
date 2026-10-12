@@ -141,3 +141,4 @@ Decisions made while building the skills that differ from or sharpen the plan ab
 - The UTC offset in the transits CSV is a per-row `UTC Offset` column rather than a header line, so the file stays parseable as plain CSV and a range that crosses a DST change is labelled correctly on every row.
 - City lookup accepts the full `City, Region, Country` label form (as printed in the ambiguity table, e.g. `Paris, 11, FR`), not only `City` or `City, Country`.
 - The golden test set is currently one chart. Its reference positions are astro.com values taken from a public test suite, because astro.com itself was unreachable from the build environment. Adding a pre-1970 DST birth, a southern-hemisphere birth and a sidereal reference remains open.
+- The returns skill (`2026-10-11-returns-composite-design.md`) wants a golden check against a published solar return for the same reason; it is tracked here with the natal golden set.

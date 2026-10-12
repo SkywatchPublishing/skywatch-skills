@@ -47,4 +47,4 @@ Requires Python 3.11 or newer and nothing else: no packages, no ephemeris files.
 
 ## Why it exists
 
-A chart is easier to take in as a picture than as a table, and drawing one by hand is slow and inconsistent. Keeping the wheel in its own skill, reading only the documented `chart.json` contract, means the same code will draw solar returns, composites and other chart types when those skills arrive, without changing a line here.
+A chart is easier to take in as a picture than as a table, and drawing one by hand is slow and inconsistent. Keeping the wheel in its own skill, reading only the documented `chart.json` contract, means the same code draws the return charts of the `returns` skill and the composite and Davison charts of the `composite` skill, without changing a line here.

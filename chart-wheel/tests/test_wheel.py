@@ -231,3 +231,32 @@ def test_separating_aspect_dashed_and_unknown_applying_solid():
     assert find(sun_saturn).get("stroke-dasharray")
     null_applying = next(a for a in chart["aspects"] if a["applying"] is None and a["aspect"] in cw.ASPECT_COLOURS)
     assert find(null_applying).get("stroke-dasharray") is None
+
+
+def test_caption_names_derived_chart_type(tmp_path):
+    chart = load_example()
+    chart["meta"]["chart_type"] = "solar_return"
+    chart["meta"]["derived_from"] = ["Example"]
+    svg = cw.render(chart)
+    assert "Solar return for Example" in svg
+    natal = load_example()
+    assert "Solar return" not in cw.render(natal)
+
+
+def test_composite_caption_drops_null_moment_and_joins_two_names():
+    chart = load_example()
+    chart["meta"]["chart_type"] = "composite"
+    chart["meta"]["derived_from"] = ["A", "B"]
+    for key in ("datetime_local", "datetime_utc", "utc_offset", "timezone"):
+        chart["meta"][key] = None
+    top = texts(render_root(chart), "caption")[0].text
+    assert "Composite for A and B" in top
+    assert "()" not in top
+    assert not top.rstrip().endswith("·")
+
+
+def test_three_derived_names_get_comma_list_with_final_and():
+    chart = load_example()
+    chart["meta"]["chart_type"] = "composite"
+    chart["meta"]["derived_from"] = ["A", "B", "C"]
+    assert "Composite for A, B and C" in cw.render(chart)
