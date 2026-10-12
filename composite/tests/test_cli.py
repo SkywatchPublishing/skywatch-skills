@@ -235,3 +235,28 @@ def test_davison_round_trips_through_sibling_skills(tmp_path):
     assert (tmp_path / "t.csv").exists()
     sibling(SYNASTRY, "--a", str(EXAMPLE), "--b", str(dav), "--out", "syn.json", "--grid", "syn.md")
     assert (tmp_path / "syn.json").exists()
+
+
+NATAL = ROOT / "natal-chart" / "scripts" / "natal_chart.py"
+
+
+def test_davison_of_sidereal_charts(tmp_path):
+    # chart.json spells the zodiac "sidereal_lahiri"; natal-chart's --zodiac accepts only "sidereal".
+    for side, birth in (("a", A_BIRTH), ("b", B_BIRTH)):
+        p = subprocess.run([sys.executable, "-I", str(NATAL), *birth.split(), "--zodiac", "sidereal",
+                            "--out", f"{side}.json", "--grid", f"{side}.md"],
+                           cwd=tmp_path, capture_output=True, text=True)
+        assert p.returncode == 0, p.stderr
+    proc = run("--a", "a.json", "--b", "b.json", "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    chart = json.loads((tmp_path / "davison.json").read_text())
+    assert chart["meta"]["zodiac"] == "sidereal_lahiri"
+
+    import swisseph as swe
+    ephe = ROOT / "natal-chart" / "ephe"
+    if (ephe / "seas_18.se1").exists():
+        swe.set_ephe_path(str(ephe))
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    (sun, *_), _ = swe.calc_ut(chart["meta"]["julian_day_ut"], swe.SUN,
+                               swe.FLG_SWIEPH | swe.FLG_SPEED | swe.FLG_SIDEREAL)
+    assert chart["bodies"]["Sun"]["longitude"] == pytest.approx(sun % 360, abs=1e-3)
