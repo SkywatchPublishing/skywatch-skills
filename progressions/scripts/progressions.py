@@ -10,9 +10,17 @@ Usage:
 
 One day after birth stands for one tropical year of life. Charts are ordinary schema-1 chart.json
 files that chart-wheel and synastry read unchanged; the timeline is a CSV of dated events.
+
+--out sets the output (default secondary_progressed_<date>.json, solar_arc_directed_<date>.json or
+progressions_timeline.csv); --grid sets a chart's Markdown aspect grid (default <out stem>_aspects.md).
+Exit codes: 0 success; 1 bad arguments or inputs.
 """
+import argparse
+import csv
 import datetime as dt
+import json
 import math
+import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -404,3 +412,193 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
             r[k] = jd_to_local_date(r[k], tz) if r[k] is not None else None
     rows.sort(key=lambda r: (r["exact"], r["technique"], r["moving"], r["target"]))
     return rows
+
+
+# --- copied from natal-chart/scripts/grid.py ------------------------------------------------
+
+SYMBOLS = {"Conjunction": "☌", "Sextile": "⚹", "Square": "□", "Trine": "△", "Quincunx": "⚻", "Opposition": "☍"}
+
+
+def _cell(a: dict) -> str:
+    suffix = {True: "a", False: "s", None: ""}[a["applying"]]
+    return f"{SYMBOLS[a['aspect']]} {a['orb']:.1f}{suffix}"
+
+
+def render_grid(chart: dict) -> str:
+    names = list(chart["bodies"])
+    if chart.get("angles"):
+        names += ["Ascendant", "MC"]
+    lookup = {}
+    for a in chart["aspects"]:
+        lookup[(a["body1"], a["body2"])] = lookup[(a["body2"], a["body1"])] = _cell(a)
+    lines = ["| | " + " | ".join(names) + " |", "|" + "---|" * (len(names) + 1)]
+    for row in names:
+        cells = [lookup.get((row, col), "") for col in names]
+        lines.append(f"| {row} | " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
+# --- copied from composite/scripts/composite.py ---------------------------------------------
+
+class Parser(argparse.ArgumentParser):
+    """argparse exits 2 on usage errors; across these skills 2 means an ambiguous city, so exit 1."""
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        print(f"{self.prog}: error: {message}", file=sys.stderr)
+        sys.exit(1)
+
+
+def load_chart(path: Path) -> dict:
+    with open(path, encoding="utf-8") as fh:
+        try:
+            chart = json.load(fh)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{path}: not valid JSON ({exc})") from exc
+    if not isinstance(chart, dict):
+        raise ValueError(f"{path}: expected a chart object")
+    if chart.get("schema_version") != SCHEMA_VERSION:
+        raise ValueError(f"{path}: expected schema_version {SCHEMA_VERSION}, got {chart.get('schema_version')!r}")
+    if not isinstance(chart.get("meta"), dict) or not chart["meta"].get("name"):
+        raise ValueError(f"{path}: missing meta.name")
+    if not isinstance(chart.get("bodies"), dict) or not chart["bodies"]:
+        raise ValueError(f"{path}: missing bodies")
+    return chart
+
+
+# --- command line -----------------------------------------------------------------------------
+
+DERIVED_TYPES = ("secondary_progressed", "solar_arc_directed")
+MAX_YEARS = 120
+TIMELINE_HEADER = ["Technique", "Event", "Moving", "Aspect", "Target", "Exact", "Orb from", "Orb to", "Detail",
+                   "Uncertain"]
+TECHNIQUE_NAMES = {"secondary": "secondary", "solar_arc": "solar arc"}
+UNTIMED_NOTE = ("Note: the birth time is unknown, so every secondary event, and every solar arc event involving the "
+                "Moon, may fall up to about six months either side of its date (a 12-hour error in the birth moment "
+                "is half a progressed day, which is half a year); those rows are marked Uncertain, and angle and "
+                "house events are left out")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = Parser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("chart", type=Path, help="natal chart.json")
+    p.add_argument("--date", type=dt.date.fromisoformat, help="target date for a progressed or directed chart")
+    p.add_argument("--timeline", action="store_true", help="write a CSV of dated events from --start to --end")
+    p.add_argument("--start", type=dt.date.fromisoformat, help="first date of the timeline")
+    p.add_argument("--end", type=dt.date.fromisoformat, help="last date of the timeline")
+    p.add_argument("--method", choices=["secondary", "solar-arc"], help="chart technique (default: secondary)")
+    p.add_argument("--angles", choices=["solar-arc", "naibod"],
+                   help="how secondary progressed angles move (default: solar-arc)")
+    p.add_argument("--out", type=Path, help="output path (defaults in the description above)")
+    p.add_argument("--grid", type=Path, help="Markdown aspect grid for a chart (default: <out stem>_aspects.md)")
+    return p
+
+
+def birth_date(natal: dict) -> dt.date:
+    meta = natal["meta"]
+    return jd_to_local_date(meta["julian_day_ut"], meta["timezone"])
+
+
+def write_timeline(rows: list[dict], path: Path) -> None:
+    """Header-clean CSV (no comment lines) so csv.DictReader and pandas.read_csv parse it as is."""
+    with open(path, "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(TIMELINE_HEADER)
+        for r in rows:
+            w.writerow([TECHNIQUE_NAMES[r["technique"]], r["event"], r["moving"], r["aspect"], r["target"],
+                        r["exact"].isoformat(), r["from"].isoformat() if r["from"] else "",
+                        r["to"].isoformat() if r["to"] else "", r["detail"], "yes" if r["uncertain"] else ""])
+
+
+def run_chart(args, natal: dict, out: Path, grid_path: Path) -> int:
+    born = birth_date(natal)
+    if args.date < born:
+        print(f"--date {args.date} is before the birth date {born}; progressions run forward from birth",
+              file=sys.stderr)
+        return 1
+    tjd = target_jd(args.date, natal["meta"]["timezone"])
+    if args.method == "solar-arc":
+        chart = directed_chart(natal, tjd)
+    else:
+        chart = progressed_chart(natal, tjd, args.angles or "solar-arc")
+    out.write_text(json.dumps(chart, indent=2, ensure_ascii=False), encoding="utf-8")
+    grid_path.write_text(render_grid(chart), encoding="utf-8")
+    print(f"Wrote {out} and {grid_path}")
+    for flag in chart["meta"]["flags"]:
+        print(f"Note: {flag}")
+    if args.angles and not chart.get("angles"):
+        print("Note: --angles ignored because the natal chart has no birth time, so no angles to progress")
+    return 0
+
+
+def run_timeline(args, natal: dict, out: Path) -> int:
+    born, start, notes = birth_date(natal), args.start, []
+    if start < born:
+        notes.append(f"Note: --start {start} is before the birth date; starting at {born}")
+        start = born
+    if args.end < start:
+        print(f"--end {args.end} is before the birth date {born}; there is nothing to list", file=sys.stderr)
+        return 1
+    if (args.end.year - MAX_YEARS, args.end.month, args.end.day) > (start.year, start.month, start.day):
+        print(f"{start} to {args.end} is over {MAX_YEARS} years; split it into shorter ranges", file=sys.stderr)
+        return 1
+    rows = timeline(natal, start, args.end, args.angles or "solar-arc")
+    write_timeline(rows, out)
+    print(f"Wrote {len(rows)} events to {out}")
+    for note in notes:
+        print(note)
+    if not natal.get("angles"):
+        print(UNTIMED_NOTE)
+    return 0
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if (args.date is None) == (not args.timeline):
+        parser.error("give exactly one of --date (a chart) and --timeline (an event list)")
+    if args.timeline:
+        if args.start is None or args.end is None:
+            parser.error("--timeline needs --start and --end")
+        if args.method or args.grid:
+            parser.error("--method and --grid apply to --date charts; the timeline lists both techniques")
+        if args.end < args.start:
+            parser.error(f"--end {args.end} is before --start {args.start}")
+        out = args.out or Path("progressions_timeline.csv")
+    else:
+        if args.start or args.end:
+            parser.error("--start and --end apply to --timeline; a chart takes --date")
+        if args.method == "solar-arc" and args.angles:
+            parser.error("--angles applies to secondary progressed charts; a solar arc directed chart "
+                         "moves every angle by the arc")
+        kind = "solar_arc_directed" if args.method == "solar-arc" else "secondary_progressed"
+        out = args.out or Path(f"{kind}_{args.date.isoformat()}.json")
+        grid_path = args.grid or out.with_name(out.stem + "_aspects.md")
+        if grid_path.resolve() == out.resolve():
+            print(f"--grid and --out are the same file ({out}); choose a different --grid", file=sys.stderr)
+            return 1
+
+    try:
+        natal = load_chart(args.chart)
+    except (OSError, ValueError) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+    meta = natal["meta"]
+    if any(meta.get(k) is None for k in ("julian_day_ut", "datetime_utc", "timezone")):
+        print(f"progressions: this chart has no real moment (chart_type {meta.get('chart_type', 'natal')}); "
+              "progressions need a natal chart", file=sys.stderr)
+        return 1
+    if meta.get("chart_type") in DERIVED_TYPES:
+        print("progressions: this is already a progressed or directed chart; progress the natal chart instead",
+              file=sys.stderr)
+        return 1
+
+    try:
+        return run_timeline(args, natal, out) if args.timeline else run_chart(args, natal, out, grid_path)
+    except (OSError, ValueError, KeyError, swe.Error) as exc:
+        print(exc, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
