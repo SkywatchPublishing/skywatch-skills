@@ -184,7 +184,7 @@ def _settings_args(meta: dict) -> list[str]:
 
 
 def _run_natal(natal_script: Path, args: list[str]) -> None:
-    r = subprocess.run([sys.executable, "-I", str(natal_script), *args], capture_output=True, text=True, timeout=120)
+    r = subprocess.run([sys.executable, "-P", str(natal_script), *args], capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         raise DelegationFailed(r.returncode, r.stdout, r.stderr)
     sys.stderr.write(r.stderr)
@@ -382,6 +382,8 @@ def main(argv=None) -> int:
 
     try:
         tz_name = resolve_timezone(natal_script, chart, place_args)
+        if "--lat" in place_args and "--tz" not in place_args:
+            place_args += ["--tz", tz_name]   # every cast uses this zone instead of looking it up again
         hits = find_returns(body_id, target, args.start, args.end, _is_sidereal(meta), shift_fn)
         args.out_dir.mkdir(parents=True, exist_ok=True)
         results = []

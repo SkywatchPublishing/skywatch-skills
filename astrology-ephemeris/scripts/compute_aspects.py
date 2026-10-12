@@ -18,11 +18,10 @@ from zoneinfo import ZoneInfo
 
 try:
     import swisseph as swe
-except ImportError:
-    print("Installing pyswisseph...")
-    import subprocess
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyswisseph", "--quiet"])
-    import swisseph as swe
+except ImportError as exc:
+    print(f"compute_aspects: pyswisseph is required but could not be imported ({exc}); "
+          "see Troubleshooting in SKILL.md. Run: pip install pyswisseph", file=sys.stderr)
+    sys.exit(1)
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
