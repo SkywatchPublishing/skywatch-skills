@@ -362,8 +362,8 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
     the mean instant (not at the mean of the two noons, and not at the mean instant itself), with
     ``time_unknown`` set and no angles or houses. natal-chart writes the aspect grid to ``grid``.
 
-    Raises ValueError when the charts disagree on zodiac or node, or when the birthplaces are
-    antipodal (no unique midpoint).
+    Raises ValueError when the charts disagree on zodiac or node, when the birthplaces are
+    antipodal (no unique midpoint), or when a timed chart is not cast at the mean instant.
     """
     grid = grid or out.with_suffix(".md")
     ma, mb = a["meta"], b["meta"]
@@ -383,11 +383,15 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
         tz, extra_flags = "UTC", ["davison_timezone_utc"]
     local = when.astimezone(ZoneInfo(tz))
 
+    timed = not (_time_unknown(a) or _time_unknown(b))
     cmd = [sys.executable, "-I", str(natal_script),
            "--name", f"{ma['name']} & {mb['name']}",
            "--date", local.strftime("%Y-%m-%d")]
-    if not (_time_unknown(a) or _time_unknown(b)):
+    if timed:
         cmd += ["--time", local.strftime("%H:%M:%S")]
+        # At a DST fall-back the wall-clock time repeats; --fold 1 tells natal-chart this is the second one.
+        if local.fold == 1:
+            cmd += ["--fold", "1"]
     cmd += ["--lat", f"{lat:.6f}", "--lon", f"{lon:.6f}", "--tz", tz,
             "--houses", ma.get("house_system") or "placidus",
             "--zodiac", ma.get("zodiac", "tropical"), "--node", ma.get("node", "true"),
@@ -400,6 +404,12 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
 
     chart = load_chart(out)
     meta = chart["meta"]
+    if timed:
+        jd = swe.julday(when.year, when.month, when.day, when.hour + when.minute / 60 + when.second / 3600)
+        if abs(meta["julian_day_ut"] - jd) * 86400 > 2:
+            raise ValueError(f"{out}: natal-chart cast {meta['datetime_utc']} but the Davison moment is "
+                             f"{when:%Y-%m-%dT%H:%M:%SZ} (timezone {tz}); "
+                             "the local time was reinterpreted, probably across a DST change")
     meta["chart_type"] = "davison"
     meta["derived_from"] = [ma["name"], mb["name"]]
     meta["source"] = {**(meta.get("source") or {}), "method": "davison"}

@@ -102,3 +102,21 @@ def test_cast_davison_untimed_side_casts_at_noon(tmp_path):
     local_date = when.astimezone(ZoneInfo(c["meta"]["timezone"])).strftime("%Y-%m-%d")
     assert local_date == "1989-04-09"
     assert c["meta"]["datetime_local"] == f"{local_date}T12:00:00"
+
+
+def test_cast_davison_in_repeated_dst_hour_casts_second_occurrence(tmp_path):
+    # The mean instant 2027-11-07T06:30Z is 01:30 EST, the second 01:30 of the New York fall-back
+    # (the first, 01:30 EDT, is 05:30Z); the midpoint of these two places lies in America/New_York.
+    def at(utc: str, jd: float, lon: float) -> dict:
+        c = json.loads(EXAMPLE.read_text())
+        c["meta"]["datetime_utc"], c["meta"]["julian_day_ut"] = utc, jd
+        c["meta"]["location"] = {"name": f"{lon}", "latitude": 40.71427, "longitude": lon, "geonameid": None}
+        return c
+    a = at("2027-11-07T00:30:00Z", 2461716.5208333, -75.5)
+    b = at("2027-11-07T12:30:00Z", 2461717.0208333, -72.5)
+    c = cp.cast_davison(NATAL, a, b, tmp_path / "fold.json")
+    m = c["meta"]
+    assert m["timezone"] == "America/New_York"
+    assert m["datetime_local"] == "2027-11-07T01:30:00"
+    assert m["datetime_utc"] == "2027-11-07T06:30:00Z"
+    assert m["utc_offset"] == "-05:00"
