@@ -140,6 +140,27 @@ def test_three_neighbours_within_nine_degrees_get_three_label_radii():
             assert a == b or abs(a - b) >= cw.LABEL_STAGGER - 0.01
 
 
+def _place(chart: dict, name: str, lon: float) -> None:
+    chart["bodies"][name]["longitude"] = lon
+    chart["bodies"][name]["sign_degree"] = lon % 30.0
+
+
+@pytest.mark.parametrize("placements", [
+    {"Moon": 359.5, "Mars": 1.0},
+    {"Moon": 359.5, "Venus": 0.5, "Mars": 1.0},
+])
+def test_neighbours_straddling_zero_aries_get_distinct_label_radii(placements):
+    chart = unknown_time_chart()
+    chart["aspects"] = []
+    for name, lon in placements.items():
+        _place(chart, name, lon)
+    radii = _label_radii(chart, list(placements))
+    assert len({round(r, 1) for r in radii}) == len(radii)
+    for a in radii:
+        for b in radii:
+            assert a == b or abs(a - b) >= cw.LABEL_STAGGER - 0.01
+
+
 def test_isolated_bodies_share_the_outer_label_radius():
     chart = unknown_time_chart()
     chart["aspects"] = []
