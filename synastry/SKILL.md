@@ -84,7 +84,7 @@ Exit codes:
 | Code | Meaning |
 |---|---|
 | `0` | Success; both paths are printed. |
-| `1` | Bad arguments (both `--a` and `--a-birth`, or neither, or `--grid` naming the same file as `--out`), an unreadable or malformed chart file (invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`; each reported as one line on stderr), or raw birth data given when no `natal-chart` script can be found (`synastry needs the natal-chart skill installed beside it to accept raw birth data; pass chart files instead`). |
+| `1` | Bad arguments (both `--a` and `--a-birth`, or neither, or `--grid` naming the same file as `--out`), an unreadable or malformed chart file (invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`; each reported as one line on stderr), two charts cast in different zodiacs or with different lunar nodes (`synastry: charts disagree on zodiac ('tropical' vs 'sidereal_lahiri'); cast both the same way`; a chart with no `meta.zodiac` counts as `tropical` and one with no `meta.node` as `true`; nothing is written), or raw birth data given when no `natal-chart` script can be found (`synastry needs the natal-chart skill installed beside it to accept raw birth data; pass chart files instead`). |
 | `2` | A `--city` in a birth string matched several places. The natal-chart candidate table is printed on stdout; nothing is written. |
 
 On exit `2`, show the candidate table to the user and ask which place they mean, exactly as the `natal-chart` skill does. Then re-run with `--geonameid <id>` inside the same birth string in place of `--city`. If the user already said which one ("Paris, Texas"), write `--city 'Paris, TX'` in the string.
@@ -151,6 +151,7 @@ The script writes files; the conversation needs a reading. From `synastry.json` 
 | `expected schema_version 1, got None` | The file is not a `natal-chart` output. Re-cast it; do not edit the version by hand. |
 | `not valid JSON`, `expected a chart object`, `missing meta.name` or `missing bodies` | The chart file is truncated or hand-edited; one line on stderr, exit `1`. Re-run `natal-chart`. |
 | `--grid and --out are the same file` | Pick a different `--grid` path (or let it default to `<out stem>.md`). |
+| `synastry: charts disagree on zodiac (...)` or `... on node (...)` | One chart is tropical and the other sidereal (about 24° apart), or one uses the true node and the other the mean. Exit `1`, nothing written. Re-cast one chart with `natal-chart` using the other's `--zodiac` and `--node` (inside the birth string if you used one), then run again. |
 | A grid cell ends in `?` | That contact involves the Moon of an untimed chart; `uncertain: true` in the JSON. Say it is approximate. |
 | `Note: a_chiron_unavailable` (or another prefixed flag) | A flag carried over from that person's natal chart; read it as the `natal-chart` skill explains it. |
 | `ModuleNotFoundError: swisseph` on stderr | The delegated natal script could not import `pyswisseph`. Run `pip install pyswisseph` in the environment the script runs in; see the `natal-chart` troubleshooting table. |

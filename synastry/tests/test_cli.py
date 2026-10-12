@@ -5,10 +5,60 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "synastry.py"
 EXAMPLE = Path(__file__).resolve().parents[2] / "natal-chart" / "examples" / "chart.json"
+NATAL = Path(__file__).resolve().parents[2] / "natal-chart" / "scripts" / "natal_chart.py"
 
 
 def run(*args, cwd):
     return subprocess.run([sys.executable, "-I", str(SCRIPT), *args], cwd=cwd, capture_output=True, text=True)
+
+
+def cast(tmp_path, stem, *extra):
+    """Cast the EXAMPLE birth with natal-chart into tmp_path, with extra flags (``--zodiac sidereal``)."""
+    out = tmp_path / f"{stem}.json"
+    r = subprocess.run([sys.executable, "-I", str(NATAL), "--name", "Example", "--date", "1990-06-15",
+                        "--time", "12:00", "--geonameid", "5128581", *extra, "--out", str(out)],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return out
+
+
+def _assert_refused(r, tmp_path, *values):
+    assert r.returncode == 1
+    lines = r.stderr.strip().splitlines()
+    assert len(lines) == 1 and "Traceback" not in r.stderr, r.stderr
+    assert all(repr(v) in lines[0] for v in values), lines[0]
+    assert not (tmp_path / "s.json").exists() and not (tmp_path / "s.md").exists()
+
+
+def test_tropical_vs_sidereal_is_refused(tmp_path):
+    sid = cast(tmp_path, "sid", "--zodiac", "sidereal")
+    r = run("--a", str(EXAMPLE), "--b", str(sid), "--out", "s.json", cwd=tmp_path)
+    _assert_refused(r, tmp_path, "tropical", "sidereal_lahiri")
+    assert "zodiac" in r.stderr
+
+
+def test_true_vs_mean_node_is_refused(tmp_path):
+    mean = cast(tmp_path, "mean", "--node", "mean")
+    r = run("--a", str(mean), "--b", str(EXAMPLE), "--out", "s.json", cwd=tmp_path)
+    _assert_refused(r, tmp_path, "mean", "true")
+    assert "node" in r.stderr
+
+
+def test_missing_node_key_means_true_node(tmp_path):
+    c = json.loads(EXAMPLE.read_text())
+    del c["meta"]["node"]
+    p = tmp_path / "old.json"
+    p.write_text(json.dumps(c))
+    r = run("--a", str(p), "--b", str(EXAMPLE), "--out", "s.json", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_two_sidereal_charts_still_compare(tmp_path):
+    sid = cast(tmp_path, "sid", "--zodiac", "sidereal")
+    r = run("--a", str(sid), "--b", str(sid), "--out", "s.json", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    s = json.loads((tmp_path / "s.json").read_text())
+    assert any(h["a"] == "Sun" and h["b"] == "Sun" and h["aspect"] == "Conjunction" for h in s["inter_aspects"])
 
 
 def test_from_files(tmp_path):
