@@ -135,3 +135,131 @@ def moved_houses(natal: dict, tjd: float, method: str) -> dict:
     h["cusps"] = [(c - shift) % 360 for c in h["cusps"]]
     h["angles"] = {k: (v - shift) % 360 for k, v in h["angles"].items()}
     return h
+
+
+SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+         "Libra", "Scorpio", "Sagittarius", "Capricorn", "Aquarius", "Pisces"]
+ASPECTS = {"Conjunction": 0, "Sextile": 60, "Square": 90, "Trine": 120, "Quincunx": 150, "Opposition": 180}
+ORBS = {"Conjunction": 8.0, "Opposition": 8.0, "Square": 8.0, "Trine": 8.0, "Sextile": 6.0, "Quincunx": 3.0}
+LUMINARY_BONUS = 2.0
+LUMINARIES = {"Sun", "Moon"}
+
+
+def sign_of(lon: float) -> tuple[str, float]:
+    lon %= 360
+    return SIGNS[int(lon // 30)], lon % 30
+
+
+def format_degree(lon: float) -> str:
+    # Round the whole longitude to the nearest arc-minute first so a value a
+    # hair under a sign boundary rolls over into the next sign (never "30°00'").
+    total_minutes = round(lon % 360 * 60) % (360 * 60)
+    sign = SIGNS[total_minutes // (30 * 60)]
+    whole, minutes = divmod(total_minutes % (30 * 60), 60)
+    return f"{whole}°{minutes:02d}' {sign}"
+
+
+def house_of(lon: float, cusps: list[float]) -> int:
+    lon %= 360
+    for i in range(12):
+        start, end = cusps[i], cusps[(i + 1) % 12]
+        inside = start <= lon < end if start < end else (lon >= start or lon < end)
+        if inside:
+            return i + 1
+    return 12
+
+
+def max_orb(aspect: str, b1: str, b2: str) -> float:
+    return ORBS[aspect] + (LUMINARY_BONUS if (b1 in LUMINARIES or b2 in LUMINARIES) else 0.0)
+
+
+def separation(lon1: float, lon2: float) -> float:
+    d = abs(lon1 - lon2) % 360
+    return min(d, 360 - d)
+
+
+def applying(p1: dict, p2: dict, angle: float) -> bool | None:
+    """Analytic applying test copied from natal-chart's aspects.py; None without relative motion."""
+    if p1.get("speed") is None or p2.get("speed") is None:
+        return None
+    rel = p1["speed"] - p2["speed"]
+    if abs(rel) < 1e-9:
+        return None
+    delta = ((p1["longitude"] - p2["longitude"] + 180) % 360) - 180
+    target = angle if delta >= 0 else -angle
+    return (delta - target) * rel < 0
+
+
+def find_aspects(points: dict[str, dict]) -> list[dict]:
+    names = list(points)
+    pairs = [(a, b) for i, a in enumerate(names) for b in names[i + 1:]
+             if not (a in ("Ascendant", "MC") and b in ("Ascendant", "MC"))]
+    found = []
+    for n1, n2 in pairs:
+        p1, p2 = points[n1], points[n2]
+        sep = separation(p1["longitude"], p2["longitude"])
+        for aspect, angle in ASPECTS.items():
+            limit = max_orb(aspect, n1, n2)
+            if abs(sep - angle) <= limit:
+                found.append({"body1": n1, "body2": n2, "aspect": aspect, "angle": angle,
+                              "orb": round(abs(sep - angle), 3), "max_orb": limit,
+                              "applying": applying(p1, p2, angle)})
+                break
+    return found
+
+
+def _body(lon, speed, lat, cusps):
+    sign, deg = sign_of(lon)
+    return {"longitude": round(lon % 360, 4), "sign": sign, "sign_degree": round(deg, 4),
+            "formatted": format_degree(lon), "speed": None if speed is None else round(speed, 4),
+            "retrograde": bool(speed is not None and speed < 0),
+            "house": house_of(lon, cusps) if cusps else None, "latitude": round(lat, 4)}
+
+
+def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd: float, arc: float,
+              angles_method: str | None) -> dict:
+    """raw: name -> (longitude, speed or None, latitude). houses: moved houses or None (untimed)."""
+    import copy
+    meta = copy.deepcopy(natal["meta"])
+    cusps = houses["cusps"] if houses else None
+    bodies = {n: _body(lon, sp, lat, cusps) for n, (lon, sp, lat) in raw.items()}
+    points = {n: {"longitude": b["longitude"], "speed": b["speed"]} for n, b in bodies.items()}
+    angles = None
+    if houses:
+        angles = {k: round(v, 4) for k, v in houses["angles"].items()}
+        points["Ascendant"] = {"longitude": angles["ascendant"]}
+        points["MC"] = {"longitude": angles["mc"]}
+        meta["house_system"] = houses["system"]
+    meta["chart_type"] = chart_type
+    meta["derived_from"] = [natal["meta"]["name"]]
+    meta["flags"] = sorted(set(meta.get("flags", [])) | set(houses["flags"] if houses else []))
+    meta["progression"] = {"target_date": jd_to_local_date(tjd, meta["timezone"]).isoformat(),
+                           "age_years": round((tjd - meta["julian_day_ut"]) / YEAR, 4),
+                           "solar_arc": round(arc, 4), "angles_method": angles_method}
+    return {"schema_version": SCHEMA_VERSION, "meta": meta, "angles": angles,
+            "houses": {"system": houses["system"], "cusps": [round(c, 4) for c in houses["cusps"]]} if houses else None,
+            "bodies": bodies, "aspects": find_aspects(points)}
+
+
+def progressed_chart(natal: dict, tjd: float, angles_method: str = "solar-arc") -> dict:
+    """Secondary progressed chart for target Julian day `tjd`."""
+    meta = natal["meta"]
+    bj = meta["julian_day_ut"]
+    pos = body_positions(progressed_jd(bj, tjd), meta["zodiac"], meta.get("node", "true"))
+    raw = {n: (p["longitude"], p["speed"], p["latitude"]) for n, p in pos.items() if n in natal["bodies"]}
+    houses = moved_houses(natal, tjd, angles_method) if natal.get("angles") else None
+    return _assemble(natal, raw, houses, "secondary_progressed", tjd, solar_arc(bj, tjd, meta["zodiac"]),
+                     angles_method if houses else None)
+
+
+def directed_chart(natal: dict, tjd: float) -> dict:
+    """Solar arc directed chart: every body, angle and cusp moves by the true solar arc."""
+    meta = natal["meta"]
+    arc = solar_arc(meta["julian_day_ut"], tjd, meta["zodiac"])
+    raw = {n: ((b["longitude"] + arc) % 360, None, b.get("latitude", 0.0)) for n, b in natal["bodies"].items()}
+    houses = None
+    if natal.get("angles"):
+        houses = {"system": natal["houses"]["system"],
+                  "cusps": [(c + arc) % 360 for c in natal["houses"]["cusps"]],
+                  "angles": {k: (v + arc) % 360 for k, v in natal["angles"].items()}, "flags": []}
+    return _assemble(natal, raw, houses, "solar_arc_directed", tjd, arc, None)
