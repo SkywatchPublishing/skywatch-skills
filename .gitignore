@@ -10,6 +10,8 @@ aspectarian_*.csv
 !**/examples/aspectarian_*.csv
 voc_*.csv
 !**/examples/voc_*.csv
+progressions_timeline*.csv
+!**/examples/progressions_timeline*.csv
 # ephemeris data: Swiss files fetched by natal-chart/scripts/fetch_ephemeris.py,
 # JPL DE440s fetched by aspectarian/scripts/fetch_ephemeris.py
 ephe/

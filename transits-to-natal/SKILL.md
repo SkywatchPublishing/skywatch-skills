@@ -13,7 +13,7 @@ description: >
 
 # Transits to Natal Skill
 
-Compare the moving sky against a cast birth chart, day by day, and write the hits as a CSV in the same one-row-per-hit style as the `astrology-ephemeris` skill's output. The input is a `chart.json` from the `natal-chart` skill; the output is a table the user can read, filter, or feed to a write-up.
+Compare the moving sky against a cast birth chart, day by day, and write the hits as a CSV in the same one-row-per-hit style as the `astrology-ephemeris` skill's output. The input is a `chart.json` from the `natal-chart` skill; the output is a table the user can read, filter, or feed to a write-up. Transits answer "what's coming up" for this year or this month; for the decade, run the `progressions` skill, whose timeline lists the slow progressed and solar arc events.
 
 ---
 
@@ -55,7 +55,7 @@ Aspects: conjunction 0°, sextile 60°, square 90°, trine 120°, quincunx 150°
 
 This skill does not take birth data. If the user has no `chart.json` yet, cast one with the `natal-chart` skill first and note where it was written. Unknown birth time is fine; the angles are simply left out.
 
-Derived charts work too: a return chart from the `returns` skill and a Davison chart from the `composite` skill are real moments with a timezone, so they scan like any natal chart. A midpoint composite has no moment (`meta.timezone` is null) and is refused with exit 1: `transits: this chart has no timezone (chart_type composite); transits need a real moment, so cast a Davison chart or use the natal chart instead`. Offer the Davison chart when the user wants transits to a relationship chart.
+Derived charts work too: a return chart from the `returns` skill and a Davison chart from the `composite` skill are real moments with a timezone, so they scan like any natal chart, and a progressed or directed chart from the `progressions` skill keeps the natal timezone, so it scans as well (transits are normally read against the natal chart, so scan one only when asked). A midpoint composite has no moment (`meta.timezone` is null) and is refused with exit 1: `transits: this chart has no timezone (chart_type composite); transits need a real moment, so cast a Davison chart or use the natal chart instead`. Offer the Davison chart when the user wants transits to a relationship chart.
 
 ### Step 2 — Install the dependency
 
