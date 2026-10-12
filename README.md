@@ -29,6 +29,7 @@ Every skill in this collection follows the same shape:
 - **`scripts/`** holds any deterministic code. The skill text tells Claude how to run it rather than asking Claude to recompute the math itself.
 - **`examples/`** contains real output, so you can judge the result before installing anything.
 - **`README.md`** explains the skill to a human reader: what it does, how to install it, and why it exists.
+- **`tests/`** checks the scripts against independent published sources where one exists (astro.com chart tables, U.S. Naval Observatory Moon phases) and pins the committed examples.
 
 The chart skills share one file format. `natal-chart` writes `chart.json`, and [`natal-chart/CONTRACT.md`](natal-chart/CONTRACT.md) documents it field by field; `chart-wheel`, `transits-to-natal`, `synastry`, `returns` and `composite` read that file rather than recomputing anything, so the folders stay copyable on their own and always agree with each other. `returns` and `composite` also write it: a return chart, a midpoint composite or a Davison chart is a `chart.json` whose `meta.chart_type` says what it is (`solar_return`, `composite`, `davison`, ...) and whose `meta.derived_from` names the source charts, so the wheel, the transit scan and synastry take derived charts unchanged.
 
@@ -36,17 +37,35 @@ Skills are tested against the sort of request a working astrologer or publisher 
 
 ## Install
 
+Requires Python 3.11 or newer.
+
 ```bash
-git clone https://github.com/mermellla/skywatch-skills
+git clone https://github.com/SkywatchPublishing/skywatch-skills
 cp -r skywatch-skills/astrology-ephemeris skywatch-skills/aspectarian ~/.claude/skills/
 cp -r skywatch-skills/natal-chart skywatch-skills/chart-wheel skywatch-skills/transits-to-natal skywatch-skills/synastry skywatch-skills/returns skywatch-skills/composite ~/.claude/skills/
+
+pip install pyswisseph timezonefinder   # astrology-ephemeris and the chart skills
+pip install skyfield                    # aspectarian
+python ~/.claude/skills/natal-chart/scripts/fetch_ephemeris.py   # Swiss Ephemeris files, about 2 MB
+python ~/.claude/skills/aspectarian/scripts/fetch_ephemeris.py   # JPL DE440s, 32 MB
 ```
 
-The chart skills need the Swiss Ephemeris data files once; run `python natal-chart/scripts/fetch_ephemeris.py` after copying. `chart-wheel`, `transits-to-natal` and `synastry` run on their own from an existing `chart.json`; `natal-chart` is needed to produce that file, so install it alongside them unless you already have charts. `returns` and `composite` read `chart.json` and also delegate every cast to `natal-chart` (each return moment, each Davison chart, and raw birth data or a city reference), so they need `natal-chart` installed beside them in the same parent folder.
+Install only what you use: `chart-wheel` needs no packages at all, and `timezonefinder` is used only for places given as raw coordinates without a time zone, and for Davison charts.
 
-`aspectarian` needs Skyfield and NASA JPL's DE440s ephemeris instead: `pip install skyfield`, then run the installed copy's fetch script once, `python ~/.claude/skills/aspectarian/scripts/fetch_ephemeris.py` (a 32 MB download into that folder's `ephe/`).
+Each fetch script downloads into the `ephe/` folder beside it, so run the copy in your skills folder, not the one in the clone. The chart skills read the Swiss files from the installed `natal-chart/ephe/`; without them they fall back to the built-in Moshier ephemeris and leave Chiron out. `chart-wheel`, `transits-to-natal` and `synastry` run on their own from an existing `chart.json`; `natal-chart` is needed to produce that file, so install it alongside them unless you already have charts. `returns` and `composite` read `chart.json` and also delegate every cast to `natal-chart` (each return moment, each Davison chart, and raw birth data or a city reference), so they need `natal-chart` installed beside them in the same parent folder.
+
+`aspectarian` uses Skyfield and NASA JPL's DE440s ephemeris instead of the Swiss Ephemeris, so it needs only its own fetch above.
 
 Use project scope (`.claude/skills/` inside a repo) when you want the skill to travel with a codebase.
+
+## Tests
+
+Each skill has its own `tests/` folder. Run them one folder at a time: the folders are deliberately not Python packages, so same-named test files in two folders would collide in a single run.
+
+```bash
+pip install pytest
+for d in */tests; do python -m pytest "$d" -q; done
+```
 
 ## Licensing
 
