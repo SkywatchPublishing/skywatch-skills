@@ -166,20 +166,36 @@ def armc_from_mc(mc: float, eps: float) -> float:
     return math.degrees(math.atan2(math.sin(m) * math.cos(e), math.cos(m))) % 360.0
 
 
+def lahiri_ayanamsa(jd: float) -> float:
+    """Lahiri ayanamsa with nutation: what calc_ut subtracts under FLG_SIDEREAL, as natal-chart's
+    sidereal zodiac does (get_ayanamsa_ut is the mean value and differs by up to 0.005°)."""
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    return swe.get_ayanamsa_ex_ut(jd, swe.FLG_SWIEPH)[1]
+
+
 HOUSE_CODES = {"placidus": b"P", "koch": b"K", "equal": b"E", "porphyry": b"O", "whole_sign": b"W"}
 
 
-def houses_from_mc(mc: float, latitude: float, eps: float, system: str) -> dict:
-    """Cusps and angles for a given MC at a latitude; whole-sign fallback at polar latitudes."""
+def houses_from_mc(mc: float, latitude: float, eps: float, system: str, ayanamsa: float = 0.0) -> dict:
+    """Cusps and angles for a given MC at a latitude; whole-sign fallback at polar latitudes.
+
+    The ARMC routine is tropical, so a sidereal MC is passed with its ``ayanamsa``: it is added to
+    the MC and subtracted from the Ascendant, MC and cusps. Whole-sign cusps are rebuilt from the
+    shifted Ascendant's sign, since shifted tropical sign boundaries are not sidereal ones.
+    """
     flags = []
-    armc = armc_from_mc(mc, eps)
+    armc = armc_from_mc(mc + ayanamsa, eps)
     try:
         cusps, ascmc = swe.houses_armc(armc, latitude, eps, HOUSE_CODES[system])
     except swe.Error:
         cusps, ascmc = swe.houses_armc(armc, latitude, eps, HOUSE_CODES["whole_sign"])
         system, flags = "whole_sign", ["polar_fallback_whole_sign"]
-    asc, mc_out = ascmc[0] % 360, ascmc[1] % 360
-    return {"system": system, "cusps": [c % 360 for c in cusps[:12]],
+    asc, mc_out = (ascmc[0] - ayanamsa) % 360, (ascmc[1] - ayanamsa) % 360
+    cusps = [(c - ayanamsa) % 360 for c in cusps[:12]]
+    if system == "whole_sign":
+        start = asc // 30 * 30
+        cusps = [(start + 30 * i) % 360 for i in range(12)]
+    return {"system": system, "cusps": cusps,
             "angles": {"ascendant": asc, "mc": mc_out, "descendant": (asc + 180) % 360, "ic": (mc_out + 180) % 360},
             "flags": flags}
 
@@ -214,7 +230,8 @@ def midpoint_chart(a: dict, b: dict, reference: dict, house_system: str) -> dict
         flags += ["time_unknown", "moon_uncertain"]
     else:
         mc = midpoint(a["angles"]["mc"], b["angles"]["mc"])
-        derived = houses_from_mc(mc, reference["latitude"], obliquity(jd), house_system)
+        aya = lahiri_ayanamsa(jd) if (ma.get("zodiac") or "").startswith("sidereal") else 0.0
+        derived = houses_from_mc(mc, reference["latitude"], obliquity(jd), house_system, aya)
         flags += derived["flags"]
         angles = {k: round(v, 4) for k, v in derived["angles"].items()}
         houses = {"system": derived["system"], "cusps": [round(c, 4) for c in derived["cusps"]]}
@@ -289,10 +306,23 @@ def great_circle_midpoint(lat1, lon1, lat2, lon2) -> tuple[float, float]:
     return math.degrees(lat), ((math.degrees(lon) + 540.0) % 360.0) - 180.0
 
 
+def _utc_instant(chart: dict, side: str) -> dt.datetime:
+    """``meta.datetime_utc`` as an aware datetime; ValueError naming the chart if it is unreadable."""
+    value = chart["meta"]["datetime_utc"]
+    try:
+        return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        raise ValueError(f"chart {side} ({chart['meta'].get('name')}): unreadable meta.datetime_utc {value!r}; "
+                         f"expected YYYY-MM-DDTHH:MM:SSZ") from None
+
+
 def davison_inputs(a: dict, b: dict) -> tuple[dt.datetime, float, float]:
-    """The Davison moment (mean of the two UTC instants) and place (great-circle midpoint)."""
-    ta = dt.datetime.strptime(a["meta"]["datetime_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
-    tb = dt.datetime.strptime(b["meta"]["datetime_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    """The Davison moment (mean of the two UTC instants) and place (great-circle midpoint).
+
+    Raises ValueError for an unreadable ``meta.datetime_utc`` or antipodal birthplaces.
+    """
+    ta = _utc_instant(a, "A")
+    tb = _utc_instant(b, "B")
     when = ta + (tb - ta) / 2
     la, lb = a["meta"]["location"], b["meta"]["location"]
     lat, lon = great_circle_midpoint(la["latitude"], la["longitude"], lb["latitude"], lb["longitude"])
@@ -369,9 +399,9 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
     ``time_unknown`` set and no angles or houses. natal-chart writes the aspect grid to ``grid``.
 
     Raises ValueError when either chart has no real moment (a midpoint composite: null
-    ``datetime_utc`` or ``timezone``), when the charts disagree on zodiac or node, when the
-    birthplaces are antipodal (no unique midpoint), or when a timed chart is not cast at the
-    mean instant.
+    ``datetime_utc`` or ``timezone``), when the charts disagree on zodiac or node, when either
+    chart's ``meta.datetime_utc`` is not ``YYYY-MM-DDTHH:MM:SSZ``, when the birthplaces are
+    antipodal (no unique midpoint), or when a timed chart is not cast at the mean instant.
     """
     grid = grid or out.with_suffix(".md")
     ma, mb = a["meta"], b["meta"]
@@ -384,10 +414,7 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
             raise ValueError(f"charts disagree on {key}: {ma.get(key)!r} vs {mb.get(key)!r}; "
                              f"recast one of them so both match")
 
-    try:
-        when, lat, lon = davison_inputs(a, b)
-    except ValueError as exc:
-        raise ValueError("birthplaces are antipodal; no unique midpoint") from exc
+    when, lat, lon = davison_inputs(a, b)
     from timezonefinder import TimezoneFinder
     tz = TimezoneFinder().timezone_at(lat=lat, lng=lon)
     extra_flags = []
@@ -396,7 +423,7 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
     local = when.astimezone(ZoneInfo(tz))
 
     timed = not (_time_unknown(a) or _time_unknown(b))
-    cmd = [sys.executable, "-I", str(natal_script),
+    cmd = [sys.executable, "-P", str(natal_script),
            "--name", f"{ma['name']} & {mb['name']}",
            "--date", local.strftime("%Y-%m-%d")]
     if timed:
@@ -481,7 +508,7 @@ def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
         words = shlex.split(birth)
     except ValueError as exc:
         raise ValueError(f"cannot parse birth arguments {birth!r}: {exc}") from exc
-    cmd = [sys.executable, "-I", str(natal_script), *words,
+    cmd = [sys.executable, "-P", str(natal_script), *words,
            "--out", str(out), "--grid", str(out.with_suffix(".md"))]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
@@ -511,7 +538,7 @@ def resolve_reference(args, a: dict, natal_script: Path | None, tmp: Path) -> di
         return a["meta"]["location"]
     if natal_script is None:
         raise ValueError(BIRTH_MISSING)
-    cmd = [sys.executable, "-I", str(natal_script), "--name", "probe", "--date", "2000-01-01"]
+    cmd = [sys.executable, "-P", str(natal_script), "--name", "probe", "--date", "2000-01-01"]
     cmd += ["--geonameid", str(args.geonameid)] if args.geonameid else ["--city", args.city]
     out = tmp / "reference.json"
     cmd += ["--out", str(out), "--grid", str(out.with_suffix(".md"))]

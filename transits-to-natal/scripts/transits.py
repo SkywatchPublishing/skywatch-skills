@@ -124,11 +124,16 @@ def scan(chart: dict, start: dt.date, end: dt.date, names: list[str]):
 
 def utc_offset_label(date: dt.date, tz: str) -> str:
     """UTC offset of local noon on `date` in `tz`, as '-04:00'. Computed per day so DST changes land on the right row."""
-    off = dt.datetime.combine(date, dt.time(12, 0), tzinfo=ZoneInfo(tz)).utcoffset()
-    total = int(off.total_seconds())
-    sign = "+" if total >= 0 else "-"
-    hours, rem = divmod(abs(total), 3600)
-    return f"{sign}{hours:02d}:{rem // 60:02d}"
+    return format_utc_offset(dt.datetime.combine(date, dt.time(12, 0), tzinfo=ZoneInfo(tz)).utcoffset())
+
+
+def format_utc_offset(off: dt.timedelta) -> str:
+    """'+HH:MM' / '-HH:MM'. Historic local mean time has seconds (New York 1880 is -04:56:02);
+    they round to the nearest minute, half a minute away from zero. Same as natal-chart's chart.format_utc_offset."""
+    seconds = int(off.total_seconds())
+    hours, minutes = divmod((abs(seconds) + 30) // 60, 60)
+    sign = "-" if seconds < 0 and (hours or minutes) else "+"
+    return f"{sign}{hours:02d}:{minutes:02d}"
 
 
 def _flag(value) -> str:

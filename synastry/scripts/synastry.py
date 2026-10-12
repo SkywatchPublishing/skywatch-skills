@@ -89,7 +89,15 @@ def _side_flags(side: str, chart: dict, untimed: bool) -> list[str]:
 
 
 def compare(a: dict, b: dict, sources: dict[str, str] | None = None) -> dict:
-    """Inter-aspects and overlays; ``sources`` names where each chart came from (file path or "birth data")."""
+    """Inter-aspects and overlays; ``sources`` names where each chart came from (file path or "birth data").
+
+    Raises ValueError when the charts disagree on zodiac or lunar node (missing means tropical, true).
+    """
+    for key, default in (("zodiac", "tropical"), ("node", "true")):
+        va, vb = a["meta"].get(key, default), b["meta"].get(key, default)
+        if va != vb:
+            raise ValueError(f"charts disagree on {key} ({va!r} vs {vb!r}); cast both the same way")
+
     a_untimed, b_untimed = _time_unknown(a), _time_unknown(b)
     flags = _side_flags("a", a, a_untimed) + _side_flags("b", b, b_untimed)
     sources = sources or {}
@@ -189,7 +197,7 @@ def cast_chart(natal_script: Path, birth: str, out: Path) -> dict:
         words = shlex.split(birth)
     except ValueError as exc:
         raise ValueError(f"cannot parse birth arguments {birth!r}: {exc}") from exc
-    cmd = [sys.executable, "-I", str(natal_script), *words,
+    cmd = [sys.executable, "-P", str(natal_script), *words,
            "--out", str(out), "--grid", str(out.with_suffix(".md"))]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
@@ -263,7 +271,11 @@ def main(argv=None) -> int:
         print(exc, file=sys.stderr)
         return 1
 
-    result = compare(charts["a"], charts["b"], sources)
+    try:
+        result = compare(charts["a"], charts["b"], sources)
+    except ValueError as exc:
+        print(f"synastry: {exc}", file=sys.stderr)
+        return 1
     args.out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     grid_path.write_text(render_grid(result, charts["a"], charts["b"]), encoding="utf-8")
     print(f"Wrote {args.out} and {grid_path}")

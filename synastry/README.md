@@ -60,7 +60,7 @@ python scripts/synastry.py \
   --b-birth "--name Bob --date 1988-02-02 --geonameid 5128581"
 ```
 
-Each birth string is the full argument list for `natal_chart.py`, quoted as one shell word. Options: `--out synastry.json`, `--grid synastry.md` (must differ from `--out`). Exit code `2` means a `--city` in a birth string matched several places; the candidates are printed as a table and the script should be re-run with `--geonameid` in the string. Exit `1` covers bad arguments, unreadable or malformed charts (one-line error on stderr), and raw birth data with no `natal-chart` found.
+Each birth string is the full argument list for `natal_chart.py`, quoted as one shell word. Options: `--out synastry.json`, `--grid synastry.md` (must differ from `--out`). Exit code `2` means a `--city` in a birth string matched several places; the candidates are printed as a table and the script should be re-run with `--geonameid` in the string. Exit `1` covers bad arguments, unreadable or malformed charts (one-line error on stderr), two charts that disagree on zodiac or lunar node (one-line error, nothing written), and raw birth data with no `natal-chart` found.
 
 Requires Python 3.11 or newer. The script itself uses the standard library only; `pyswisseph` is needed through `natal-chart` for raw birth data.
 
