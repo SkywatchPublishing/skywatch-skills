@@ -49,7 +49,7 @@ Each person is given one of two ways, exactly as in `synastry`:
 
 Mix them freely. A birth string is handed verbatim to the natal-chart script; its `Note:` lines and stderr are forwarded. The cast natal charts are kept in a temporary directory, so if the user will want them again, run `natal-chart` with `--out` and pass the files.
 
-Both charts must share the same zodiac and the same node setting. If they differ (`charts disagree on zodiac: 'tropical' vs 'sidereal'`), re-cast one of them with matching `--zodiac`/`--node` and run again.
+Both charts must share the same zodiac and the same node setting. If they differ, the script exits 1 with, for example, `charts disagree on zodiac: 'tropical' vs 'sidereal_lahiri'; recast one of them so both match` (chart A's value first). The values are quoted as `chart.json` stores them in `meta.zodiac` and `meta.node`: `sidereal_lahiri` is what `natal-chart` writes for `--zodiac sidereal`, while `tropical` and the node values `true` and `mean` are spelled the same as their flags. Re-cast one chart with matching `--zodiac`/`--node` and run again.
 
 ### Step 2 — Choose the method, and for a midpoint composite the reference place
 
@@ -170,7 +170,7 @@ A midpoint composite is not a moment in time: do not describe it as "the sky on"
 |---|---|
 | `composite needs the natal-chart skill installed beside it to cast a Davison chart` | Install `natal-chart` in the same parent folder (or `~/.claude/skills/`, `./.claude/skills/`), or use `--method midpoint`. |
 | `composite needs the natal-chart skill installed beside it to accept raw birth data or a --city/--geonameid reference` | Same install, or pass chart files with `--a/--b` and the reference place as `--lat/--lon`. |
-| `charts disagree on zodiac` or `charts disagree on node` | Re-cast one chart with `natal-chart` so both use the same `--zodiac` and `--node`. |
+| `charts disagree on zodiac` or `charts disagree on node` | Re-cast one chart with `natal-chart` so both use the same `--zodiac` and `--node`. A quoted `'sidereal_lahiri'` is the `chart.json` spelling of `--zodiac sidereal`. |
 | `a Davison chart is cast at the great-circle midpoint of the two birthplaces; the reference place flags apply to --method midpoint only` | Drop `--city`, `--geonameid`, `--lat/--lon` and `--tz` for Davison. |
 | Exit code `2` with a table of places | Ambiguous city, in a birth string or as the reference. Show the table, ask, and re-run with `--geonameid`. |
 | `give --a or --a-birth, not both` | Each person is given exactly one way. |
