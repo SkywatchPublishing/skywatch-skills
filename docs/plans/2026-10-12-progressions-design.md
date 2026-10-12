@@ -39,9 +39,12 @@ house system, using the house-from-ARMC routine the composite skill uses,
 with the same whole-sign fallback at polar latitudes. Body houses and
 internal aspects are recomputed.
 
-Solar arc directed chart: every natal body and angle moves forward by the
-true solar arc, the progressed Sun minus the natal Sun. Houses come from the
-directed MC at the birth latitude.
+Solar arc directed chart: every natal body, angle and house cusp moves
+forward by the same true solar arc, the progressed Sun minus the natal Sun.
+Body house placements therefore match the natal chart, and the directed
+Ascendant is natal Ascendant plus arc, consistent with the timeline. With
+solar-arc angles the progressed MC equals the directed MC by definition, so
+the timeline lists its events once, under solar arc.
 
 Planets are computed in the script rather than by calling natal-chart: the
 progressed instant needs no place lookup and the angles are replaced anyway.
