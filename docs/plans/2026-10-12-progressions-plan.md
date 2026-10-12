@@ -4,7 +4,7 @@
 
 **Goal:** Add a `progressions` skill that writes secondary progressed and solar arc directed charts for a date, and a dated event timeline, per `docs/plans/2026-10-12-progressions-design.md`.
 
-**Architecture:** One script, `progressions/scripts/progressions.py`, built up across Tasks 2 to 5. It reads a natal `chart.json`, computes progressed planets with pyswisseph at birth + age days, moves angles by solar arc or Naibod, and assembles ordinary schema-1 charts with copied helpers. The timeline samples target dates every 15 days and bisects each crossing to a quarter day. No cross-folder imports.
+**Architecture:** One script, `progressions/scripts/progressions.py`, built up across Tasks 2 to 5. It reads a natal `chart.json`, computes progressed planets with pyswisseph at birth + age days, moves angles by solar arc or Naibod, and assembles ordinary schema-1 charts with copied helpers. The timeline samples target dates every 15 days and bisects each crossing to the minute, so printed local dates do not depend on the sample grid. No cross-folder imports.
 
 **Tech Stack:** Python 3.11+, pyswisseph 2.10, pytest. Standard library otherwise.
 
@@ -28,8 +28,8 @@ Facts verified while designing, which the tests rely on (example chart: 1990-06-
 
 - Target 2027-06-15 (local noon): age 37.0001 years, true solar arc 35.2991°, progressed Sun 29°35' Cancer, progressed Moon 6°48' Leo.
 - Solar-arc angles: progressed MC 106.525 = natal MC 71.226 + arc. Naibod angles: MC 104.868, 1.656° behind.
-- Target = birth reproduces the natal chart: bodies exactly, Ascendant and cusps within 4e-5°, tropical or sidereal.
-- Timeline 2027-2036: 135 rows in about 1 s with solar-arc angles (143 with Naibod); worst secondary exact-date error 0.019°; progressed Moon sign ingresses 2.29, 2.43, 2.52 years apart; a lifetime scan finds progressed Pluto turning direct on 2030-11-05 and Mercury turning retrograde on 2061-05-17.
+- Target = birth reproduces the natal chart: bodies exactly, angles and cusps within about 1e-4°, tropical or sidereal (the natal MC they start from and the natal cusps they are compared with are rounded to 4 decimals; 4.1e-5° for the example's Koch cusps, 9.7e-5° at 64° N).
+- Timeline 2027-2036: 132 rows in about 1 s with solar-arc angles (140 with Naibod); worst secondary exact-date error 0.019°; progressed Moon sign ingresses 2.29, 2.43, 2.52 years apart; a lifetime scan finds progressed Pluto turning direct on 2030-11-05 and Mercury turning retrograde on 2061-05-17.
 
 Commit after every task with the given imperative message.
 
@@ -180,10 +180,12 @@ from zoneinfo import ZoneInfo
 
 import swisseph as swe
 
-for _ephe in (Path(__file__).resolve().parents[1] / "ephe", Path(__file__).resolve().parents[2] / "natal-chart" / "ephe"):
-    if (_ephe / "seas_18.se1").exists():
-        swe.set_ephe_path(str(_ephe))
-        break
+EPHE_DIRS = (Path(__file__).resolve().parents[1] / "ephe",
+             Path(__file__).resolve().parents[2] / "natal-chart" / "ephe")
+# The first folder holding the files, else this skill's own ephe/: without them pyswisseph falls back to its
+# built-in Moshier ephemeris, which has no Chiron.
+EPHE_DIR = next((d for d in EPHE_DIRS if (d / "seas_18.se1").exists()), EPHE_DIRS[0])
+swe.set_ephe_path(str(EPHE_DIR))
 # Lahiri is the project-wide ayanamsa; FLG_SIDEREAL on each call selects the zodiac.
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 
@@ -196,6 +198,10 @@ BODIES = {
     "Neptune": swe.NEPTUNE, "Pluto": swe.PLUTO, "Chiron": swe.CHIRON, "Node": swe.TRUE_NODE,
 }
 HOUSE_CODES = {"placidus": b"P", "koch": b"K", "equal": b"E", "porphyry": b"O", "whole_sign": b"W"}
+
+
+def ephemeris_files_present() -> bool:
+    return (EPHE_DIR / "seas_18.se1").exists()
 
 
 def wrapped(x: float) -> float:
@@ -425,7 +431,7 @@ def test_missing_chiron_stays_missing(natal):
 
 **Step 2: Run** → fails (no `progressed_chart`).
 
-**Step 3: Implement** (append):
+**Step 3: Implement** (add `import copy` to the imports at the top, then append):
 
 ```python
 SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
@@ -525,8 +531,8 @@ def _moon_range(start: float, end: float) -> dict:
 def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd: float, arc: float,
               angles_method: str | None, moon_range: dict | None) -> dict:
     """raw: name -> (longitude, speed or None, latitude). houses: moved houses or None (untimed).
-    The natal meta is copied whole (keeping keys such as house_system_requested); the moving parts are replaced."""
-    import copy
+    The natal meta is copied whole (keeping keys such as house_system_requested); the moving parts are replaced.
+    A natal body missing from raw is Chiron without its ephemeris file, flagged as natal-chart flags it."""
     meta = copy.deepcopy(natal["meta"])
     meta["moon_range"] = moon_range
     cusps = houses["cusps"] if houses else None
@@ -540,7 +546,9 @@ def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd:
         meta["house_system"] = houses["system"]
     meta["chart_type"] = chart_type
     meta["derived_from"] = [natal["meta"]["name"]]
-    meta["flags"] = sorted(set(meta.get("flags", [])) | set(houses["flags"] if houses else []))
+    lost = {"chiron_unavailable"} if set(natal["bodies"]) - set(raw) else set()
+    meta["flags"] = sorted(set(meta.get("flags", [])) | set(houses["flags"] if houses else []) | lost)
+    meta["source"] = {**(meta.get("source") or {}), "ephemeris_files": ephemeris_files_present()}
     meta["progression"] = {"target_date": jd_to_local_date(tjd, meta["timezone"]).isoformat(),
                            "age_years": round((tjd - meta["julian_day_ut"]) / YEAR, 4),
                            "solar_arc": round(arc, 4), "angles_method": angles_method}
@@ -559,8 +567,9 @@ def progressed_chart(natal: dict, tjd: float, angles_method: str = "solar-arc") 
     houses = moved_houses(natal, tjd, angles_method) if natal.get("angles") else None
     moon = None
     if meta.get("moon_range") is not None:
-        # Untimed: the progressed Moon for a birth at each edge of the birth day, each progressed by its own age.
-        moon = _moon_range(*(swe.calc_ut(progressed_jd(e, tjd), swe.MOON, _flags(meta["zodiac"]))[0][0]
+        # Untimed: the progressed Moon for a birth at each edge of the birth day, each progressed by its own age,
+        # never below 0 (on the birth date, a birth at 23:59 has not happened by noon).
+        moon = _moon_range(*(swe.calc_ut(progressed_jd(e, max(tjd, e)), swe.MOON, _flags(meta["zodiac"]))[0][0]
                              for e in day_edges(natal)))
     return _assemble(natal, raw, houses, "secondary_progressed", tjd, solar_arc(bj, tjd, meta["zodiac"]),
                      angles_method if houses else None, moon)
@@ -628,9 +637,7 @@ def rows(natal):
 
 def test_sorted_and_overlapping(rows):
     assert rows == sorted(rows, key=lambda r: (r["exact"], r["technique"], r["moving"], r["target"]))
-    for r in rows:
-        lo, hi = r["from"] or r["exact"], r["to"] or r["exact"]
-        assert hi >= START and lo <= END
+    assert all(pg.overlaps(r, START, END) for r in rows)
 
 
 def test_secondary_exact_dates_are_exact(natal, rows):
@@ -684,7 +691,7 @@ def test_untimed_chart(natal):
 ```python
 ORB = 1.0                  # timeline window, degrees either side of exact
 STEP = 15.0                # days of real time between samples
-TOL = 0.25                 # bisect crossings to a quarter day
+TOL = 1 / 1440             # bisect to a minute so printed local dates do not depend on the sample grid
 MARGIN = 5 * YEAR          # scan this far beyond the range so windows overlapping it are found
 SLOW_MARGIN = 40 * YEAR    # the same for movers that can stall at a station: windows up to ~37 years (Mars)
 EDGE_LIMIT = 60 * YEAR     # look this far past exact for a window's closing edge; beyond it the window is open
@@ -771,6 +778,13 @@ def _state_events(technique: str, event: str, mover: str, state, ts: list[float]
     return rows
 
 
+def progressable(natal: dict) -> list[str]:
+    """The natal bodies pyswisseph can progress here: Chiron drops out when its ephemeris file is missing."""
+    meta = natal["meta"]
+    pos = body_positions(meta["julian_day_ut"], meta["zodiac"], meta.get("node", "true"))
+    return [n for n in natal["bodies"] if n in pos]
+
+
 def overlaps(row: dict, start: dt.date, end: dt.date) -> bool:
     """Whether a timeline row, its dates already local, touches start..end, compared as whole days.
 
@@ -812,6 +826,7 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
     def prog_retro(name):
         return lambda t: swe.calc_ut(progressed_jd(bj, t), BODIES[name], flags)[0][3] < 0
 
+    progressed = progressable(natal)
     rows = []
     for name in SECONDARY_MOVERS:
         if name in natal["bodies"]:
@@ -819,13 +834,18 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
                                    slow_ts if name in SLOW_MOVERS else ts, bj)
     if timed:
         # With solar-arc angles the progressed MC is the directed MC by definition; list it once, under solar arc.
-        moving = (("Ascendant", "ascendant"),) if angles_method == "solar-arc" else (("Ascendant", "ascendant"), ("MC", "mc"))
+        moving = (("Ascendant", "ascendant"),)
+        if angles_method != "solar-arc":
+            moving += (("MC", "mc"),)
         houses_at = house_mover(natal, angles_method)
         for ang, key in moving:
             rows += _aspect_events("secondary", ang, lambda t, k=key: houses_at(t)["angles"][k], targets, ts, bj)
     for name, lon in targets.items():
-        rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts, bj)
-    for name in natal["bodies"]:
+        # The directed Sun is the progressed Sun (the arc is the progressed Sun's travel); list it once, under
+        # secondary.
+        if name != "Sun":
+            rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts, bj)
+    for name in progressed:
         f = prog_lon(name)
         rows += _state_events("secondary", "ingress", name, lambda t, f=f: int((f(t) % 360) // 30), ts,
                               lambda a, b, t: f"enters {SIGNS[b]}")
@@ -834,7 +854,7 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
         rows += _state_events("secondary", "house", "Moon", lambda t: house_of(f(t), cusps), ts,
                               lambda a, b, t: f"enters natal house {b}")
     for name in STATION_BODIES:
-        if name in natal["bodies"]:
+        if name in progressed:
             rows += _state_events("secondary", "station", name, prog_retro(name), ts,
                                   lambda a, b, t, f=prog_lon(name):
                                   f"turns {'retrograde' if b else 'direct'} at {format_degree(f(t))}")
@@ -873,9 +893,9 @@ progressions.py chart.json --timeline --start YYYY-MM-DD --end YYYY-MM-DD [--ang
 Behaviour:
 - Exactly one of `--date` and `--timeline` (exit 1 otherwise). `--angles` only with secondary charts or the timeline; `--method solar-arc --angles ...` exits 1.
 - Copy `Parser` (usage errors exit 1) and `load_chart` from `composite/scripts/composite.py`. Refuse any chart whose `meta.chart_type` is present and not `natal` (returns, composites, Davison, progressed and directed charts; a chart carrying `meta.progression` counts as progressed), naming the chart_type, and a natal chart without a real moment (`meta.julian_day_ut`, `datetime_utc` or `timezone` null), each with a one-line stderr message and exit 1.
-- Refuse `--out` or `--grid` resolving to the input chart file (one stderr line, exit 1, nothing written).
+- Refuse `--out` or `--grid` naming the input chart file (by any path or a hard link), naming a folder, or in a folder that does not exist, all before anything is computed (one stderr line naming the path, exit 1, nothing written).
 - Chart mode: default out `secondary_progressed_<date>.json` or `solar_arc_directed_<date>.json`; grid default `<out stem>_aspects.md`, rendered with `render_grid` copied from `natal-chart/scripts/grid.py`; `--grid` equal to `--out` exits 1. Print `Wrote <out> and <grid>` and a `Note:` line per flag.
-- Timeline mode: default out `progressions_timeline.csv`; `--end` before `--start` exits 1; a `--start` before birth is clamped to the birth date with a Note; ranges over 120 years exit 1. CSV header `Technique,Event,Moving,Aspect,Target,Exact,Orb from,Orb to,Detail,Uncertain`; Technique is `secondary` or `solar arc`; dates ISO; Uncertain is `yes` or blank. Print `Wrote N events to <out>`, plus a Note when the chart is untimed.
+- Timeline mode: default out `progressions_timeline.csv`; `--end` before `--start` exits 1; a `--start` before birth is clamped to the birth date with a Note; ranges over 120 years exit 1. CSV header `Technique,Event,Moving,Aspect,Target,Exact,Orb from,Orb to,Detail,Uncertain`; Technique is `secondary` or `solar arc`; dates ISO; Uncertain is `yes` or blank. Print `Wrote N events to <out>`, plus `Note: chiron_unavailable` when the ephemeris files are missing (progressed Chiron's ingresses and stations are left out) and a Note when the chart is untimed.
 
 **Tests** (subprocess with `sys.executable -I`, from a tmp cwd): chart mode defaults (both methods; file names, chart_type, grid present); `--angles naibod` recorded in `progression.angles_method`; `--method solar-arc --angles naibod` exits 1; both `--date` and `--timeline` exits 1; neither exits 1; a composite, a Davison chart and a solar return from the examples each exit 1 with one stderr line naming the chart_type; an already-progressed chart exits 1; `--out` or `--grid` over the input exits 1; `--date` equal to the birth date with an afternoon birth gives age 0; timeline writes the header and at least 100 rows for the example over 2027–2036 and parses with `csv.DictReader`; end before start exits 1; a start before birth is clamped with a Note; `--grid` equal to `--out` exits 1.
 
@@ -924,6 +944,13 @@ no self-aspect at birth and no window before it; whole-day range overlap with op
 midnights kept on their date; natal constants cached; solar arc rows uncertain for untimed charts when the
 Moon, Sun, Mercury, Venus or Mars is involved; station longitudes in Detail. Each has a test in
 `progressions/tests`.
+
+A second review round: crossings bisected to the minute (`TOL = 1 / 1440`) so printed local dates do not depend
+on the sample grid; solar arc rows moving the Sun dropped (the directed Sun is the progressed Sun, listed under
+secondary); missing ephemeris files handled as natal-chart does (`chiron_unavailable`, `meta.source.ephemeris_files`
+for the run, progressed Chiron's timeline rows left out with a Note); every output's folder checked before anything
+is computed; hard links to the input refused; the untimed `moon_range` edges clamped to age 0 on the birth date; an
+empty or null `chart_type` refused. Each has a test in `progressions/tests`.
 
 ## Out of scope
 

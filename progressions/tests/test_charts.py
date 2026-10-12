@@ -109,6 +109,16 @@ def test_untimed_moon_range_moves_with_the_chart(cast):
         pytest.approx(natal_range["start"], abs=0.05)
 
 
+def test_untimed_moon_range_on_the_birth_date(cast):
+    # At local noon on the birth date a birth at 00:00 is twelve hours old, while one at 23:59 has not happened
+    # yet: that edge is age 0, the natal 23:59 Moon, not a Moon progressed backwards.
+    u = cast("--date", "1990-06-15", *NY)
+    t = at(u, 1990, 6, 15)
+    p = pg.progressed_chart(u, t)["meta"]["moon_range"]
+    assert p["start"] == pytest.approx(edge_moon(u, 0, 0, t), abs=1e-4)
+    assert p["end"] == pytest.approx(u["meta"]["moon_range"]["end"], abs=2e-4)
+
+
 def test_timed_charts_keep_a_null_moon_range(natal):
     t = at(natal, 2027, 6, 15)
     assert pg.progressed_chart(natal, t)["meta"]["moon_range"] is None
@@ -138,3 +148,24 @@ def test_house_system_requested_is_carried_through(natal):
 def test_missing_chiron_stays_missing(natal):
     del natal["bodies"]["Chiron"]
     assert "Chiron" not in pg.progressed_chart(natal, at(natal, 2027, 6, 15))["bodies"]
+
+
+def test_charts_record_the_ephemeris_used(natal):
+    if not pg.ephemeris_files_present():
+        pytest.skip("needs the Swiss Ephemeris files (natal-chart/scripts/fetch_ephemeris.py)")
+    t = at(natal, 2027, 6, 15)
+    for chart in (pg.progressed_chart(natal, t), pg.directed_chart(natal, t)):
+        assert chart["meta"]["source"]["ephemeris_files"] is True
+        assert "chiron_unavailable" not in chart["meta"]["flags"] and "Chiron" in chart["bodies"]
+
+
+def test_missing_ephemeris_files_flag_chiron_like_natal_chart(natal, no_ephemeris):
+    t = at(natal, 2027, 6, 15)
+    p, d = pg.progressed_chart(natal, t), pg.directed_chart(natal, t)
+    assert "Chiron" not in p["bodies"] and "chiron_unavailable" in p["meta"]["flags"]
+    # A directed Chiron is natal Chiron plus the arc: no ephemeris file needed.
+    assert "Chiron" in d["bodies"] and "chiron_unavailable" not in d["meta"]["flags"]
+    for chart in (p, d):
+        assert chart["meta"]["source"]["ephemeris_files"] is False
+        assert chart["meta"]["source"]["library"] == "pyswisseph"
+    assert natal["meta"]["source"]["ephemeris_files"] is True

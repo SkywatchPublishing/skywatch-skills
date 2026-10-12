@@ -16,6 +16,7 @@ progressions_timeline.csv); --grid sets a chart's Markdown aspect grid (default 
 Exit codes: 0 success; 1 bad arguments or inputs.
 """
 import argparse
+import copy
 import csv
 import datetime as dt
 import json
@@ -26,10 +27,12 @@ from zoneinfo import ZoneInfo
 
 import swisseph as swe
 
-for _ephe in (Path(__file__).resolve().parents[1] / "ephe", Path(__file__).resolve().parents[2] / "natal-chart" / "ephe"):
-    if (_ephe / "seas_18.se1").exists():
-        swe.set_ephe_path(str(_ephe))
-        break
+EPHE_DIRS = (Path(__file__).resolve().parents[1] / "ephe",
+             Path(__file__).resolve().parents[2] / "natal-chart" / "ephe")
+# The first folder holding the files, else this skill's own ephe/: without them pyswisseph falls back to its
+# built-in Moshier ephemeris, which has no Chiron.
+EPHE_DIR = next((d for d in EPHE_DIRS if (d / "seas_18.se1").exists()), EPHE_DIRS[0])
+swe.set_ephe_path(str(EPHE_DIR))
 # Lahiri is the project-wide ayanamsa; FLG_SIDEREAL on each call selects the zodiac.
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 
@@ -42,6 +45,10 @@ BODIES = {
     "Neptune": swe.NEPTUNE, "Pluto": swe.PLUTO, "Chiron": swe.CHIRON, "Node": swe.TRUE_NODE,
 }
 HOUSE_CODES = {"placidus": b"P", "koch": b"K", "equal": b"E", "porphyry": b"O", "whole_sign": b"W"}
+
+
+def ephemeris_files_present() -> bool:
+    return (EPHE_DIR / "seas_18.se1").exists()
 
 
 def wrapped(x: float) -> float:
@@ -278,8 +285,8 @@ def _moon_range(start: float, end: float) -> dict:
 def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd: float, arc: float,
               angles_method: str | None, moon_range: dict | None) -> dict:
     """raw: name -> (longitude, speed or None, latitude). houses: moved houses or None (untimed).
-    The natal meta is copied whole (keeping keys such as house_system_requested); the moving parts are replaced."""
-    import copy
+    The natal meta is copied whole (keeping keys such as house_system_requested); the moving parts are replaced.
+    A natal body missing from raw is Chiron without its ephemeris file, flagged as natal-chart flags it."""
     meta = copy.deepcopy(natal["meta"])
     meta["moon_range"] = moon_range
     cusps = houses["cusps"] if houses else None
@@ -293,7 +300,9 @@ def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd:
         meta["house_system"] = houses["system"]
     meta["chart_type"] = chart_type
     meta["derived_from"] = [natal["meta"]["name"]]
-    meta["flags"] = sorted(set(meta.get("flags", [])) | set(houses["flags"] if houses else []))
+    lost = {"chiron_unavailable"} if set(natal["bodies"]) - set(raw) else set()
+    meta["flags"] = sorted(set(meta.get("flags", [])) | set(houses["flags"] if houses else []) | lost)
+    meta["source"] = {**(meta.get("source") or {}), "ephemeris_files": ephemeris_files_present()}
     meta["progression"] = {"target_date": jd_to_local_date(tjd, meta["timezone"]).isoformat(),
                            "age_years": round((tjd - meta["julian_day_ut"]) / YEAR, 4),
                            "solar_arc": round(arc, 4), "angles_method": angles_method}
@@ -312,8 +321,9 @@ def progressed_chart(natal: dict, tjd: float, angles_method: str = "solar-arc") 
     houses = moved_houses(natal, tjd, angles_method) if natal.get("angles") else None
     moon = None
     if meta.get("moon_range") is not None:
-        # Untimed: the progressed Moon for a birth at each edge of the birth day, each progressed by its own age.
-        moon = _moon_range(*(swe.calc_ut(progressed_jd(e, tjd), swe.MOON, _flags(meta["zodiac"]))[0][0]
+        # Untimed: the progressed Moon for a birth at each edge of the birth day, each progressed by its own age,
+        # never below 0 (on the birth date, a birth at 23:59 has not happened by noon).
+        moon = _moon_range(*(swe.calc_ut(progressed_jd(e, max(tjd, e)), swe.MOON, _flags(meta["zodiac"]))[0][0]
                              for e in day_edges(natal)))
     return _assemble(natal, raw, houses, "secondary_progressed", tjd, solar_arc(bj, tjd, meta["zodiac"]),
                      angles_method if houses else None, moon)
@@ -342,7 +352,7 @@ def directed_chart(natal: dict, tjd: float) -> dict:
 
 ORB = 1.0                  # timeline window, degrees either side of exact
 STEP = 15.0                # days of real time between samples
-TOL = 0.25                 # bisect crossings to a quarter day
+TOL = 1 / 1440             # bisect to a minute so printed local dates do not depend on the sample grid
 MARGIN = 5 * YEAR          # scan this far beyond the range so windows overlapping it are found
 SLOW_MARGIN = 40 * YEAR    # the same for movers that can stall at a station: windows up to ~37 years (Mars)
 EDGE_LIMIT = 60 * YEAR     # look this far past exact for a window's closing edge; beyond it the window is open
@@ -429,6 +439,13 @@ def _state_events(technique: str, event: str, mover: str, state, ts: list[float]
     return rows
 
 
+def progressable(natal: dict) -> list[str]:
+    """The natal bodies pyswisseph can progress here: Chiron drops out when its ephemeris file is missing."""
+    meta = natal["meta"]
+    pos = body_positions(meta["julian_day_ut"], meta["zodiac"], meta.get("node", "true"))
+    return [n for n in natal["bodies"] if n in pos]
+
+
 def overlaps(row: dict, start: dt.date, end: dt.date) -> bool:
     """Whether a timeline row, its dates already local, touches start..end, compared as whole days.
 
@@ -470,6 +487,7 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
     def prog_retro(name):
         return lambda t: swe.calc_ut(progressed_jd(bj, t), BODIES[name], flags)[0][3] < 0
 
+    progressed = progressable(natal)
     rows = []
     for name in SECONDARY_MOVERS:
         if name in natal["bodies"]:
@@ -477,13 +495,18 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
                                    slow_ts if name in SLOW_MOVERS else ts, bj)
     if timed:
         # With solar-arc angles the progressed MC is the directed MC by definition; list it once, under solar arc.
-        moving = (("Ascendant", "ascendant"),) if angles_method == "solar-arc" else (("Ascendant", "ascendant"), ("MC", "mc"))
+        moving = (("Ascendant", "ascendant"),)
+        if angles_method != "solar-arc":
+            moving += (("MC", "mc"),)
         houses_at = house_mover(natal, angles_method)
         for ang, key in moving:
             rows += _aspect_events("secondary", ang, lambda t, k=key: houses_at(t)["angles"][k], targets, ts, bj)
     for name, lon in targets.items():
-        rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts, bj)
-    for name in natal["bodies"]:
+        # The directed Sun is the progressed Sun (the arc is the progressed Sun's travel); list it once, under
+        # secondary.
+        if name != "Sun":
+            rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts, bj)
+    for name in progressed:
         f = prog_lon(name)
         rows += _state_events("secondary", "ingress", name, lambda t, f=f: int((f(t) % 360) // 30), ts,
                               lambda a, b, t: f"enters {SIGNS[b]}")
@@ -492,7 +515,7 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
         rows += _state_events("secondary", "house", "Moon", lambda t: house_of(f(t), cusps), ts,
                               lambda a, b, t: f"enters natal house {b}")
     for name in STATION_BODIES:
-        if name in natal["bodies"]:
+        if name in progressed:
             rows += _state_events("secondary", "station", name, prog_retro(name), ts,
                                   lambda a, b, t, f=prog_lon(name):
                                   f"turns {'retrograde' if b else 'direct'} at {format_degree(f(t))}")
@@ -513,7 +536,8 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
 
 # --- copied from natal-chart/scripts/grid.py ------------------------------------------------
 
-SYMBOLS = {"Conjunction": "☌", "Sextile": "⚹", "Square": "□", "Trine": "△", "Quincunx": "⚻", "Opposition": "☍"}
+SYMBOLS = {"Conjunction": "☌", "Sextile": "⚹", "Square": "□", "Trine": "△", "Quincunx": "⚻",
+           "Opposition": "☍"}
 
 
 def _cell(a: dict) -> str:
@@ -578,11 +602,22 @@ UNTIMED_NOTE = ("Note: the birth time is unknown, so every secondary event may f
 
 def derived_type(meta: dict) -> str | None:
     """What a chart that is not natal is (its chart_type), or None for a natal chart. A missing chart_type
-    means natal (older files); a chart carrying meta.progression is progressed whatever it says."""
-    chart_type = meta.get("chart_type") or "natal"
-    if chart_type == "natal" and "progression" in meta:
-        return "progressed"
-    return None if chart_type == "natal" else chart_type
+    means natal (older files); any other value is refused, an empty or null one shown as JSON, and a chart
+    carrying meta.progression is progressed whatever it says."""
+    chart_type = meta.get("chart_type", "natal")
+    if chart_type == "natal":
+        return "progressed" if "progression" in meta else None
+    return chart_type if chart_type and isinstance(chart_type, str) else json.dumps(chart_type)
+
+
+def same_file(a: Path, b: Path) -> bool:
+    """Whether two paths name one file: the same path after symlinks and `..`, or a hard link."""
+    if a.resolve() == b.resolve():
+        return True
+    try:
+        return a.samefile(b)
+    except OSError:              # either one does not exist yet
+        return False
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -648,6 +683,8 @@ def run_timeline(args, natal: dict, out: Path) -> int:
     print(f"Wrote {len(rows)} events to {out}")
     for note in notes:
         print(note)
+    if "Chiron" in natal["bodies"] and "Chiron" not in progressable(natal):
+        print("Note: chiron_unavailable")
     if not natal.get("angles"):
         print(UNTIMED_NOTE)
     return 0
@@ -675,12 +712,22 @@ def main(argv=None) -> int:
         kind = "solar_arc_directed" if args.method == "solar-arc" else "secondary_progressed"
         out = args.out or Path(f"{kind}_{args.date.isoformat()}.json")
         grid_path = args.grid or out.with_name(out.stem + "_aspects.md")
-        if grid_path.resolve() == out.resolve():
+        if same_file(grid_path, out):
             print(f"--grid and --out are the same file ({out}); choose a different --grid", file=sys.stderr)
             return 1
+    # Every output is checked before anything is computed or written, so a bad --grid never leaves a chart
+    # without its grid.
     for flag, path in (("--out", out), ("--grid", grid_path)):
-        if path is not None and path.resolve() == args.chart.resolve():
+        if path is None:
+            continue
+        if same_file(path, args.chart):
             print(f"{flag} {path} is the input chart; choose a different {flag}", file=sys.stderr)
+            return 1
+        if path.is_dir():
+            print(f"{flag} {path} is a folder; give a file name", file=sys.stderr)
+            return 1
+        if not path.parent.is_dir():
+            print(f"{flag} {path}: the folder {path.parent} does not exist; create it first", file=sys.stderr)
             return 1
 
     try:

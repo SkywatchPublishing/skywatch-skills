@@ -46,7 +46,7 @@ returns and composite refuse progressed and directed charts (`meta.chart_type` `
 | `house_system` | string or null | `placidus`, `koch`, `equal`, `porphyry` or `whole_sign` as actually used (after any polar fallback); `null` when `time_unknown`. |
 | `node` | string | `"true"` or `"mean"`: which lunar node the `Node` body holds. |
 | `flags` | array of string | Caveats, see below. Empty array when none. |
-| `source` | object | `{library: "pyswisseph", version: string, ephemeris_files: bool}`. `ephemeris_files` false means the built-in Moshier ephemeris was used (slightly lower precision). Composite charts add `method`: `"midpoint"` or `"davison"`; absent on every other chart type. |
+| `source` | object | `{library: "pyswisseph", version: string, ephemeris_files: bool}`. `ephemeris_files` false means the built-in Moshier ephemeris was used (slightly lower precision); on progressed and directed charts it describes the progressions run, not the natal cast. Composite charts add `method`: `"midpoint"` or `"davison"`; absent on every other chart type. |
 
 ### `flags` values
 
@@ -105,7 +105,7 @@ Ascendant-MC). `body1`/`body2` follow the body order above, angles last.
 | `angle` | int | The exact angle for `aspect`, in degrees. |
 | `orb` | float | Unsigned distance from exact, degrees, 3 decimals. It never says which side of exact the pair sits on. |
 | `max_orb` | float | The limit applied to this pair: base orb for the aspect (8° for conjunction/opposition/square/trine, 6° sextile, 3° quincunx) plus 2° when either body is the Sun or Moon. `orb <= max_orb` always. |
-| `applying` | bool or null | `true` when the pair is closing on exact, `false` when separating. `null` when it cannot be decided: aspects to `Ascendant`/`MC` (angles carry no speed) or two bodies with identical speed. |
+| `applying` | bool or null | `true` when the pair is closing on exact, `false` when separating. `null` when it cannot be decided: aspects to `Ascendant`/`MC` (angles carry no speed), two bodies with identical speed, and every aspect in a `solar_arc_directed` chart (directed bodies carry no speed). |
 
 ## Exit codes of `natal_chart.py`
 

@@ -215,6 +215,67 @@ def test_output_over_the_input_chart_exits_1(tmp_path, args):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["chart.json"]
 
 
+@pytest.mark.parametrize("args", [
+    ["--date", "2027-06-15", "--out", "out.json"],
+    ["--date", "2027-06-15", "--out", "p.json", "--grid", "out.json"],
+    ["--timeline", "--start", "2027-01-01", "--end", "2027-12-31", "--out", "out.json"],
+])
+def test_output_hard_linked_to_the_input_chart_exits_1(tmp_path, args):
+    path = write_chart(tmp_path, "chart.json", lambda c: None)
+    (tmp_path / "out.json").hardlink_to(path)
+    before = path.read_text()
+    proc = run("chart.json", *args, cwd=tmp_path)
+    assert proc.returncode == 1
+    assert len(proc.stderr.splitlines()) == 1 and "input chart" in proc.stderr
+    assert path.read_text() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["chart.json", "out.json"]
+
+
+@pytest.mark.parametrize("args, bad", [
+    (["--date", "2027-06-15", "--out", "p.json", "--grid", "missing/p.md"], "missing/p.md"),
+    (["--date", "2027-06-15", "--out", "missing/p.json"], "missing/p.json"),
+    (["--date", "2027-06-15", "--out", "p.json", "--grid", "subdir"], "subdir"),
+    (["--timeline", "--start", "2027-01-01", "--end", "2027-12-31", "--out", "missing/t.csv"], "missing/t.csv"),
+])
+def test_output_without_a_folder_exits_1_before_writing(tmp_path, args, bad):
+    (tmp_path / "subdir").mkdir()
+    proc = run(EXAMPLE, *args, cwd=tmp_path)
+    assert proc.returncode == 1
+    assert len(proc.stderr.splitlines()) == 1 and bad in proc.stderr
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["subdir"]
+    assert not list((tmp_path / "subdir").iterdir())
+
+
+def test_chart_without_a_chart_type_is_natal(tmp_path):
+    path = write_chart(tmp_path, "old.json", lambda c: c["meta"].pop("chart_type"))
+    proc = run(path, "--date", "2027-06-15", "--out", "p.json", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads((tmp_path / "p.json").read_text(encoding="utf-8"))["meta"]["chart_type"] == "secondary_progressed"
+
+
+@pytest.mark.parametrize("value, shown", [("", '""'), (None, "null")])
+def test_empty_or_null_chart_type_is_refused(tmp_path, value, shown):
+    path = write_chart(tmp_path, "c.json", lambda c: c["meta"].update(chart_type=value))
+    for mode in MODES:
+        proc = run(path, *mode, cwd=tmp_path)
+        assert proc.returncode == 1
+        assert len(proc.stderr.splitlines()) == 1 and f"this is a {shown} chart, not a natal one" in proc.stderr
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["c.json"]
+
+
+def test_missing_ephemeris_files_note_chiron(tmp_path, monkeypatch, capsys, no_ephemeris):
+    monkeypatch.chdir(tmp_path)
+    assert pg.main([str(EXAMPLE), "--date", "2027-06-15", "--out", "p.json"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["Wrote p.json and p_aspects.md", "Note: chiron_unavailable"]
+    chart = json.loads((tmp_path / "p.json").read_text(encoding="utf-8"))
+    assert "Chiron" not in chart["bodies"] and chart["meta"]["source"]["ephemeris_files"] is False
+    assert pg.main([str(EXAMPLE), "--timeline", "--start", "2027-01-01", "--end", "2028-12-31"]) == 0
+    rows = read_csv(tmp_path / "progressions_timeline.csv")
+    assert capsys.readouterr().out.splitlines() == [f"Wrote {len(rows)} events to progressions_timeline.csv",
+                                                    "Note: chiron_unavailable"]
+    assert rows and not [r for r in rows if r["Moving"] == "Chiron" and r["Technique"] == "secondary"]
+
+
 def test_birth_date_with_an_afternoon_birth_is_age_zero(tmp_path, cast):
     path = tmp_path / "late.json"
     path.write_text(json.dumps(cast("--date", "1990-06-15", "--time", "18:30", "--geonameid", "5128581")))

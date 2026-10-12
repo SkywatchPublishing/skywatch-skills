@@ -44,7 +44,13 @@ chart's natal MC is shifted to tropical with the birth ayanamsa and the
 resulting angles and cusps are shifted back with the ayanamsa at the
 progressed instant, the moment the progressed bodies use (Lahiri with
 nutation, as natal-chart's sidereal output); whole-sign cusps are then the
-sidereal sign boundaries from the progressed Ascendant's sign.
+sidereal sign boundaries from the progressed Ascendant's sign. Under both
+methods the angles move by the ARMC: the house routine works from the ARMC
+with the birth obliquity, and the sidereal conversion back uses the ayanamsa
+at the progressed instant while the obliquity stays the birth value. A
+sidereal chart's Naibod angles therefore trail the tropical Naibod angles
+(natal ARMC + 0.9856° a year) less the birth ayanamsa by the ayanamsa's
+drift from the birth to the progressed instant, about 0.002° at age 37.
 
 Solar arc directed chart: every natal body, angle and house cusp moves
 forward by the same true solar arc, the progressed Sun minus the natal Sun.
@@ -58,6 +64,11 @@ solar arc.
 
 Planets are computed in the script rather than by calling natal-chart: the
 progressed instant needs no place lookup and the angles are replaced anyway.
+Without the Swiss Ephemeris files the script behaves as natal-chart does:
+pyswisseph falls back to Moshier, a progressed chart leaves Chiron out and
+flags `chiron_unavailable`, `meta.source.ephemeris_files` records what the
+run used, the timeline leaves out progressed Chiron's ingresses and
+stations, and both print `Note: chiron_unavailable`.
 The small helpers needed (sign formatting, house placement, aspect table,
 house-from-ARMC) are copied, never imported across folders.
 
@@ -90,19 +101,23 @@ Events:
   progressed Ascendant and MC when the birth time is known, to every natal
   body and angle, using the repository's six aspects.
 - Solar arc aspects: every directed body and angle to every natal body and
-  angle, excluding a point to itself.
+  angle, excluding a point to itself. The directed Sun is the progressed Sun
+  (the arc is the progressed Sun's travel), so its aspects are listed once,
+  under secondary, as with solar-arc angles the MC is listed once, under
+  solar arc.
 - Ingresses: any progressed body changing sign; the progressed Moon entering
   a natal house.
 - Stations: any progressed body from Mercury outward turning retrograde or
   direct.
 
 Columns: `Technique, Event, Moving, Aspect, Target, Exact, Orb from, Orb to,
-Detail`. Dates are local dates in the natal timezone, with no clock times. A
-progressed planet that turns back across a natal point gives one row per
-exact pass, each with its own window.
+Detail, Uncertain`. Dates are local dates in the natal timezone, with no
+clock times. A progressed planet that turns back across a natal point gives
+one row per exact pass, each with its own window.
 
 Method: sample target dates every 15 days, detect crossings of the exact
-angle and of the ±1° window edges, and bisect each to the day.
+angle and of the ±1° window edges, and bisect each to the minute, so a
+printed local date does not depend on where the sample grid falls.
 Progressed Mercury, Venus and Mars can stall near a station, so their
 windows can last decades (up to about 37 years for Mars); they are scanned
 40 years either side of the range rather than 5. A station that comes

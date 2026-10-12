@@ -82,9 +82,7 @@ def orb(natal, r, date, angles="solar-arc"):
 
 def test_sorted_and_overlapping(rows):
     assert rows == sorted(rows, key=lambda r: (r["exact"], r["technique"], r["moving"], r["target"]))
-    for r in rows:
-        lo, hi = r["from"] or r["exact"], r["to"] or r["exact"]
-        assert hi >= START and lo <= END
+    assert all(pg.overlaps(r, START, END) for r in rows)
 
 
 def test_secondary_exact_dates_are_exact(natal, rows):
@@ -158,6 +156,18 @@ def test_moon_ingresses_about_two_and_a_half_years_apart(rows):
 def test_mc_listed_once_with_solar_arc_angles(rows, naibod_rows):
     assert not [r for r in rows if r["technique"] == "secondary" and r["moving"] == "MC"]
     assert [r for r in naibod_rows if r["technique"] == "secondary" and r["moving"] == "MC"]
+
+
+def test_sun_listed_once_under_secondary(rows, naibod_rows):
+    # The directed Sun is the progressed Sun (the arc is the progressed Sun's travel), so its aspects are listed
+    # once, under secondary.
+    assert not [r for r in rows + naibod_rows if r["technique"] == "solar_arc" and r["moving"] == "Sun"]
+    for timeline_rows in (rows, naibod_rows):
+        sun = [(r["aspect"], r["target"], r["exact"], r["from"], r["to"]) for r in timeline_rows
+               if r["technique"] == "secondary" and r["event"] == "aspect" and r["moving"] == "Sun"]
+        assert sun == [("Sextile", "Mercury", D(2034, 2, 20), D(2033, 2, 3), D(2035, 3, 9)),
+                       ("Opposition", "Node", D(2036, 5, 20), D(2035, 5, 4), D(2037, 6, 6)),
+                       ("Quincunx", "Uranus", D(2036, 6, 2), D(2035, 5, 17), D(2037, 6, 19))]
 
 
 def test_lifetime_stations(life):
@@ -241,13 +251,21 @@ def test_overlaps_compares_whole_local_days():
     assert pg.overlaps(row("station", s), s, s)
 
 
-def test_one_day_ranges_keep_that_days_events(natal, rows):
-    def find(**kw):
-        return next(r for r in rows if all(r[k] == v for k, v in kw.items()))
-    for r, side in [(find(event="station", moving="Pluto"), "exact"),
-                    (find(technique="secondary", moving="Ascendant", aspect="Square", target="Neptune"), "to"),
-                    (find(technique="secondary", moving="Moon", aspect="Quincunx", target="Moon", exact=D(2028, 3, 23)), "from")]:
-        assert r in pg.timeline(natal, r[side], r[side])
+def test_printed_dates_do_not_depend_on_the_sample_grid(natal):
+    # The sample grid starts five years (forty for Mercury, Venus and Mars) before the range, so every range
+    # samples at a different phase. A one-day range on any of a row's dates must still list that row with the
+    # same dates. One date per row, rotating through the three columns, keeps this to ~43 timeline runs.
+    key = ("technique", "event", "moving", "aspect", "target", "exact", "from", "to")
+    sample = pg.timeline(natal, D(2027, 1, 1), D(2031, 12, 31))[::2]
+    checked = set()
+    for i, r in enumerate(sample):
+        column = ("exact", "from", "to")[i % 3]
+        column = column if r[column] is not None else "exact"
+        day = r[column]
+        assert tuple(r[k] for k in key) in {tuple(x[k] for k in key) for x in pg.timeline(natal, day, day)}, \
+            (column, r)
+        checked.add(column)
+    assert len(sample) >= 40 and checked == {"exact", "from", "to"}
 
 
 def test_sidereal_timeline_is_exact(cast):
@@ -259,3 +277,39 @@ def test_sidereal_timeline_is_exact(cast):
     assert [r for r in aspects if r["moving"] == "Ascendant"]
     for r in aspects:
         assert orb(sid, r, r["exact"]) < 0.05
+
+
+def test_sidereal_naibod_timeline_is_exact(cast):
+    sid = cast("--date", "1990-06-15", "--time", "12:00", *NY, "--zodiac", "sidereal")
+    rows = pg.timeline(sid, D(2027, 1, 1), D(2030, 12, 31), "naibod")
+    aspects = [r for r in rows if r["event"] == "aspect"]
+    assert [r for r in aspects if r["technique"] == "secondary" and r["moving"] == "MC"]
+    assert [r for r in aspects if r["technique"] == "secondary" and r["moving"] == "Ascendant"]
+    for r in aspects:
+        assert orb(sid, r, r["exact"], "naibod") < 0.05, r
+
+
+# Born 20 days before Chiron turned retrograde on 1990-11-09: progressed Chiron stations in 2009.
+CHIRON_STATION = ("--date", "1990-10-20", "--time", "12:00", *NY)
+
+
+@pytest.fixture(scope="module")
+def chiron_natal(cast):
+    return cast(*CHIRON_STATION)
+
+
+@pytest.fixture(scope="module")
+def chiron_rows(chiron_natal):
+    # Module scope: built with the ephemeris files, before a function-scoped no_ephemeris takes them away.
+    return pg.timeline(chiron_natal, D(2008, 1, 1), D(2012, 12, 31))
+
+
+def test_missing_ephemeris_files_leave_out_progressed_chiron(chiron_natal, chiron_rows, no_ephemeris):
+    # Moshier has no Chiron: progressed Chiron's ingresses and stations are left out. Directed Chiron (natal
+    # Chiron plus the arc) and aspects to natal Chiron need no ephemeris file and stay.
+    progressed_chiron = [r for r in chiron_rows if r["moving"] == "Chiron" and r["technique"] == "secondary"]
+    assert [(r["event"], r["exact"]) for r in progressed_chiron] == [("station", D(2009, 5, 26))]
+    rows = pg.timeline(chiron_natal, D(2008, 1, 1), D(2012, 12, 31))
+    key = lambda r: (r["technique"], r["event"], r["moving"], r["aspect"], r["target"])
+    assert sorted(map(key, rows)) == sorted(key(r) for r in chiron_rows if r not in progressed_chiron)
+    assert [r for r in rows if "Chiron" in (r["moving"], r["target"])]

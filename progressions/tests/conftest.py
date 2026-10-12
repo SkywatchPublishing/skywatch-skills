@@ -15,6 +15,8 @@ NATAL_SCRIPT = Path(__file__).resolve().parents[2] / "natal-chart" / "scripts" /
 @pytest.fixture(scope="session")
 def cast(tmp_path_factory):
     """cast(*natal_chart.py args) -> chart dict, cast once per distinct argument list."""
+    if not NATAL_SCRIPT.exists():
+        pytest.skip(f"natal-chart is not installed beside progressions ({NATAL_SCRIPT} is missing)")
     cache, folder = {}, tmp_path_factory.mktemp("natal")
 
     def run(*args):
@@ -25,3 +27,16 @@ def cast(tmp_path_factory):
             cache[args] = out.read_text(encoding="utf-8")
         return json.loads(cache[args])
     return run
+
+
+@pytest.fixture
+def no_ephemeris(tmp_path_factory, monkeypatch):
+    """Point progressions at an empty folder, as on a machine without the Swiss Ephemeris files: pyswisseph
+    falls back to its built-in Moshier ephemeris, which has no Chiron."""
+    import swisseph as swe
+    import progressions as pg
+    empty, original = tmp_path_factory.mktemp("no_ephe"), pg.EPHE_DIR
+    monkeypatch.setattr(pg, "EPHE_DIR", empty)
+    swe.set_ephe_path(str(empty))
+    yield empty
+    swe.set_ephe_path(str(original))

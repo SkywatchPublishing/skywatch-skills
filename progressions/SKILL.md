@@ -42,7 +42,8 @@ In each chart's `meta`:
 | `progression` | `{target_date, age_years, solar_arc, angles_method}`: the date the chart is read for, the age then in tropical years, the true solar arc in degrees (both to 4 decimals), and `solar-arc` or `naibod` for a progressed chart with a birth time; `null` for a directed chart and for any chart from an untimed natal chart |
 | `datetime_local`, `datetime_utc`, `utc_offset`, `timezone`, `julian_day_ut` | The natal birth values, unchanged. They are not the chart's moment; `progression.target_date` is |
 | `moon_range` | `null` for a timed chart. For an untimed one, the progressed Moon for a birth at 00:00 and at 23:59 on the birth date (directed: the natal range plus the arc) |
-| `flags` | The natal chart's flags, plus `polar_fallback_whole_sign` if the progressed angles land where the house system fails |
+| `flags` | The natal chart's flags, plus `polar_fallback_whole_sign` if the progressed angles land where the house system fails, and `chiron_unavailable` on a progressed chart cast without the ephemeris files (see Step 3) |
+| `source` | The natal chart's, with `ephemeris_files` set for this run: `false` when the Swiss Ephemeris files were missing and the built-in Moshier ephemeris was used |
 
 **The timeline** is a CSV, sorted by `Exact` (then technique, moving point and target), listing every event whose 1° window overlaps the range:
 
@@ -66,7 +67,7 @@ What the timeline scans:
 | Event | Moving points | Measured against |
 |---|---|---|
 | Secondary aspects | Progressed Moon, Sun, Mercury, Venus, Mars, and the progressed Ascendant (plus the progressed MC with `--angles naibod`) | Every natal body, the natal Ascendant and MC |
-| Solar arc aspects | Every directed body, the directed Ascendant and MC | Every natal body, Ascendant and MC, except the point's own natal place |
+| Solar arc aspects | Every directed body except the Sun, the directed Ascendant and MC | Every natal body, Ascendant and MC, except the point's own natal place |
 | Ingresses | Every progressed body | The signs |
 | House ingresses | The progressed Moon | The natal cusps (timed charts only) |
 | Stations | Progressed Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Chiron | Their direction of motion (retrograde or direct) |
@@ -81,7 +82,7 @@ The six aspects are the repository's usual set, each with a flat 1° window. A c
 
 This skill does not take birth data. If the user has no `chart.json` yet, cast one with the `natal-chart` skill first and note where it was written. An unknown birth time is accepted, with the limits in "Unknown birth time".
 
-Only natal charts are progressed. A return chart, a midpoint composite, a Davison chart, or a chart that is already progressed or directed (any `meta.chart_type` other than `natal`, or any chart carrying `meta.progression`) is refused with exit 1: `progressions: this is a <chart_type> chart, not a natal one; progress the natal chart instead`. A natal chart whose `julian_day_ut`, `datetime_utc` or `timezone` is null is refused too: `progressions: this natal chart has no real moment (julian_day_ut, datetime_utc or timezone is null); recast it with natal-chart`.
+Only natal charts are progressed. A return chart, a midpoint composite, a Davison chart, or a chart that is already progressed or directed (any `meta.chart_type` other than `natal`, an empty or null one included, or any chart carrying `meta.progression`) is refused with exit 1: `progressions: this is a <chart_type> chart, not a natal one; progress the natal chart instead`. A chart with no `meta.chart_type` at all, written before the key existed, is read as natal. A natal chart whose `julian_day_ut`, `datetime_utc` or `timezone` is null is refused too: `progressions: this natal chart has no real moment (julian_day_ut, datetime_utc or timezone is null); recast it with natal-chart`.
 
 ### Step 2 — Pick the mode
 
@@ -106,7 +107,7 @@ Requires Python 3.11 or newer.
 pip install pyswisseph --quiet
 ```
 
-Ephemeris files are looked for in this skill's own `ephe/` folder, then in the sibling `natal-chart/ephe/` (run `python natal-chart/scripts/fetch_ephemeris.py` once). Without them a progressed chart leaves Chiron out and a timeline for a chart with Chiron fails; see "Troubleshooting".
+Ephemeris files are looked for in this skill's own `ephe/` folder, then in the sibling `natal-chart/ephe/` (run `python natal-chart/scripts/fetch_ephemeris.py` once). Without them pyswisseph falls back to its built-in Moshier ephemeris, as natal-chart does: the planets are still computed, slightly less precisely, but Chiron is not. A progressed chart then leaves Chiron out, adds `chiron_unavailable` to `meta.flags` and prints `Note: chiron_unavailable`; a directed chart keeps Chiron, which is natal Chiron plus the arc; both record `meta.source.ephemeris_files: false`. A timeline leaves out progressed Chiron's sign ingresses and stations, keeps directed Chiron and aspects to natal Chiron (neither needs the file), and prints `Note: chiron_unavailable`. Tell the user progressed Chiron is missing.
 
 ### Step 4 — Run the script
 
@@ -124,15 +125,15 @@ python scripts/progressions.py chart.json --date 2027-06-15
 | `--angles` | `solar-arc` | `solar-arc` or `naibod`: how secondary progressed angles move. For secondary charts and the timeline; refused with `--method solar-arc` |
 | `--timeline` | off | Write the event CSV instead of a chart |
 | `--start`, `--end` | required with `--timeline` | ISO dates, inclusive, compared as whole local days; at most 120 years apart |
-| `--out` | `secondary_progressed_<date>.json`, `solar_arc_directed_<date>.json` or `progressions_timeline.csv` | Output path, in a folder that already exists; must not be the input chart |
-| `--grid` | `<out stem>_aspects.md` | Aspect grid path, charts only; must differ from `--out` and from the input chart |
+| `--out` | `secondary_progressed_<date>.json`, `solar_arc_directed_<date>.json` or `progressions_timeline.csv` | Output path, in a folder that already exists; must not be the input chart (by any path or hard link) |
+| `--grid` | `<out stem>_aspects.md` | Aspect grid path, charts only, in a folder that already exists; must differ from `--out` and from the input chart |
 
 Exit codes:
 
 | Code | Meaning |
 |---|---|
-| `0` | Success. A chart prints `Wrote <out> and <grid>`, then a `Note: <flag>` line per flag in `meta.flags`, then `Note: --angles ignored because the natal chart has no birth time, so no angles to progress` when that applies. A timeline prints `Wrote N events to <out>`, then `Note: --start <date> is before the birth date; starting at <birth date>` when the start was moved, then the unknown-birth-time note for an untimed chart. |
-| `1` | Bad arguments or input, with the reason on stderr and nothing written: both or neither of `--date` and `--timeline`; `--timeline` without `--start` and `--end`; `--method` or `--grid` with `--timeline`; `--start` or `--end` with `--date`; `--angles` with `--method solar-arc`; `--end` before `--start`; an invalid date or choice; `--grid` the same file as `--out`; `--out` or `--grid` naming the input chart; an unreadable or malformed chart file (missing, invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`); a chart that is not natal or has no real moment (Step 1); a `--date` before the birth date; a timeline `--end` before the birth date; a range over 120 years. Usage errors print the usage line first. |
+| `0` | Success. A chart prints `Wrote <out> and <grid>`, then a `Note: <flag>` line per flag in `meta.flags`, then `Note: --angles ignored because the natal chart has no birth time, so no angles to progress` when that applies. A timeline prints `Wrote N events to <out>`, then `Note: --start <date> is before the birth date; starting at <birth date>` when the start was moved, then `Note: chiron_unavailable` when the ephemeris files are missing (Step 3), then the unknown-birth-time note for an untimed chart. |
+| `1` | Bad arguments or input, with the reason on stderr and nothing written: both or neither of `--date` and `--timeline`; `--timeline` without `--start` and `--end`; `--method` or `--grid` with `--timeline`; `--start` or `--end` with `--date`; `--angles` with `--method solar-arc`; `--end` before `--start`; an invalid date or choice; `--grid` the same file as `--out`; `--out` or `--grid` naming the input chart, naming a folder, or in a folder that does not exist (all checked before anything is computed); an unreadable or malformed chart file (missing, invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`); a chart that is not natal or has no real moment (Step 1); a `--date` before the birth date; a timeline `--end` before the birth date; a range over 120 years. Usage errors print the usage line first. |
 
 There is no exit code 2: this skill takes no place names.
 
@@ -183,15 +184,15 @@ For a sidereal chart the arithmetic is done in tropical longitude and shifted ba
 
 **Windows.** An aspect row is a window: `Orb from` is when the moving point comes within 1° of exact, `Exact` when it perfects, `Orb to` when it moves beyond 1° again. Read it as an aspect building to `Exact` and fading after it. In the example, typical widths are about two months for the progressed Moon (it moves about a degree a month), two years for the progressed Sun and every solar arc, one to three years for progressed Mercury, Venus and Mars at their normal pace, and about two and a half years for the progressed Ascendant (longer or shorter with the sign and the birth latitude). Ingress, house and station rows have no window: they are point events on `Exact`, with `Orb from` and `Orb to` blank.
 
-**Rows outside the range.** A row is listed when its window overlaps the range, compared as whole local days, so its `Exact` can fall before `--start` or after `--end`: 9 of the 135 rows in the example. Progressed Mercury, Venus and Mars can stall near a station, and then a window can last years or decades (up to about 37 years for Mars); the timeline scans them 40 years either side of the range and still lists any window that overlaps it, however far away its `Exact` is. An `Orb from` on the birth date means the point was within 1° at birth, and a blank `Orb to` on an aspect means it is still within 1° 60 years after `Exact`.
+**Rows outside the range.** A row is listed when its window overlaps the range, compared as whole local days, so its `Exact` can fall before `--start` or after `--end`: 9 of the 132 rows in the example. Progressed Mercury, Venus and Mars can stall near a station, and then a window can last years or decades (up to about 37 years for Mars); the timeline scans them 40 years either side of the range and still lists any window that overlaps it, however far away its `Exact` is. An `Orb from` on the birth date means the point was within 1° at birth, and a blank `Orb to` on an aspect means it is still within 1° 60 years after `Exact`.
 
 **Retrograde passes.** A progressed planet that turns back across a natal point gives one row per exact pass, each with its own window, and the windows of passes in one loop overlap. Present them as one event with several exact dates.
 
 **Stations that fall short.** A station that comes within 1° of an aspect point without perfecting produces no aspect row, because the point never reaches exact; the station row's `Detail` shows where it stations. The example's progressed Mercury turns retrograde on 2061-05-17 with the Detail `turns retrograde at 23°34' Virgo`: 27' short of a trine to natal Saturn (24°01' Capricorn) and 43' short of a square to the natal Sun (24°17' Gemini), and neither gets an aspect row. When a station's degree sits within a degree of an aspect to a natal point, compare it with the natal positions yourself and mention the near-aspect, which holds for years.
 
-**The Sun appears twice.** The true solar arc is the distance the progressed Sun has moved, so the directed Sun is always exactly the progressed Sun. Every aspect the progressed Sun makes is listed twice, once as `secondary` and once as `solar arc`, with identical dates (in the example: Sun sextile Mercury 2034-02-20, Sun opposition Node 2036-05-20, Sun quincunx Uranus 2036-06-02). Present each pair as one event of the progressed and directed Sun.
+**The Sun is listed once, under secondary.** The true solar arc is the distance the progressed Sun has moved, so the directed Sun is always exactly the progressed Sun, and its aspects are listed once, as `secondary` rows (in the example: Sun sextile Mercury 2034-02-20, Sun opposition Node 2036-05-20, Sun quincunx Uranus 2036-06-02). There are no `solar arc` rows moving the Sun; present these as aspects of the progressed (and directed) Sun. The MC is the mirror case: with the default solar-arc angles it is listed once, under `solar arc`.
 
-**Dates and the noon chart.** `Exact` is the local calendar date at the birthplace on which the aspect perfects, found to about a day. The moment of perfection can fall earlier or later in that day than the local noon that a `--date` chart for the same date is cast for, so that chart shows the aspect a few hundredths of a degree from exact, not at 0.000°.
+**Dates and the noon chart.** `Exact` is the local calendar date at the birthplace on which the aspect perfects, found to within a minute, so it does not shift with the range asked for. The moment of perfection can fall earlier or later in that day than the local noon that a `--date` chart for the same date is cast for, so that chart shows the aspect a few hundredths of a degree from exact, not at 0.000°.
 
 ---
 
@@ -235,7 +236,7 @@ The files are the deliverable; the conversation needs a reading. From the chart 
 1. **Say what was cast.** The technique, the target date, the age and the solar arc ("secondary progressed chart for 15 June 2027, age 37; solar arc 35°18'"), the angle method if Naibod, and the zodiac if sidereal.
 2. **Lead with the progressed Moon.** Its sign and degree (`bodies.Moon.formatted`) and its house. Say which house you give: `bodies.Moon.house` in the progressed chart is its house among the progressed cusps, while the natal house it is passing through comes from placing its longitude among the natal chart's `houses.cusps`, or from the most recent `house` row (`enters natal house N`) of a timeline that starts a few years earlier. The natal house is the common reading. In the example, on 2027-06-15, the progressed Moon is at 6°48' Leo, in the natal 11th house and the progressed 10th. Then when it entered the sign and when it leaves (the Moon's `ingress` rows).
 3. **Then the next two or three exact events** after the target date, from the timeline, each with its technique and window: "solar arc Venus conjunct natal Sun, exact 21 June 2027 (in orb June 2026 to July 2028)", "progressed Moon opposite the natal Node, exact 19 July 2027 (in orb 23 June to 14 August)". If the user asked only for a chart, run a timeline from the target date over the next few years to get these; the chart has no dates.
-4. **Group a timeline by year.** Within each year go in date order, and say for every event which technique it comes from ("progressed Moon trine natal Mars", "solar arc MC conjunct natal Chiron"). Merge the duplicated Sun rows and the passes of one retrograde loop. Lead each year with the rarer events: the progressed Sun or an angle changing sign, stations, the progressed Moon changing sign or natal house, and aspects to or from the Ascendant and MC. The progressed Moon makes an aspect about every month or two, so over a long range summarize those rather than reading each.
+4. **Group a timeline by year.** Within each year go in date order, and say for every event which technique it comes from ("progressed Moon trine natal Mars", "solar arc MC conjunct natal Chiron"). Merge the passes of one retrograde loop. Lead each year with the rarer events: the progressed Sun or an angle changing sign, stations, the progressed Moon changing sign or natal house, and aspects to or from the Ascendant and MC. The progressed Moon makes an aspect about every month or two, so over a long range summarize those rather than reading each.
 5. **State the caveats.** If the birth time is unknown, say before any date that secondary dates can be about six months off either way and which solar arc rows are uncertain too, and that there are no angles or houses. Say the timeline uses a 1° window and dates without clock times.
 6. **Deliver the files.** Hand over the chart, grid and CSV with whatever file-sharing mechanism the environment provides.
 
@@ -249,16 +250,16 @@ Progressions describe timing and themes, not outcomes. Describe what a period em
 |---|---|---|
 | Time key | Age = (target − birth) / 365.24219 days; progressed instant = birth + age days; target = local noon of `--date` in `meta.timezone`, never before the birth moment | `YEAR`, `progressed_jd()`, `target_jd()` |
 | Solar arc | Progressed Sun minus natal Sun, in the chart's zodiac, in `[0, 360)` | `solar_arc()` |
-| Progressed bodies | `swe.calc_ut` at the progressed instant with the chart's zodiac (Lahiri for sidereal) and node; Chiron left out when its ephemeris file is missing | `body_positions()` |
+| Progressed bodies | `swe.calc_ut` at the progressed instant with the chart's zodiac (Lahiri for sidereal) and node; Chiron left out and flagged `chiron_unavailable` when its ephemeris file is missing | `body_positions()`, `progressable()` |
 | Progressed angles | Solar-arc: MC = natal MC + arc, ARMC from that MC. Naibod: natal ARMC + 0.9856473° per year. Then `swe.houses_armc` at the birth latitude with the birth obliquity; whole-sign fallback flagged `polar_fallback_whole_sign` at polar latitudes; sidereal charts shifted with the Lahiri ayanamsa (with nutation) at the progressed instant | `house_mover()`, `houses_from_armc()` |
 | Directed chart | Every natal longitude, angle and cusp + arc; whole-sign cusps from the directed Ascendant's sign | `directed_chart()` |
 | Chart aspects | Natal orb table (8° conjunction, opposition, square, trine; 6° sextile; 3° quincunx; +2° with the Sun or Moon), Ascendant-MC pair excluded | `find_aspects()` |
-| Timeline sampling | Every 15 days of real time; crossings of exact and of the ±1° edges bisected to a quarter day; stations from a sign change in progressed speed | `STEP`, `TOL`, `_zero_crossings()`, `_edge()` |
+| Timeline sampling | Every 15 days of real time; crossings of exact and of the ±1° edges bisected to the minute; stations from a sign change in progressed speed | `STEP`, `TOL`, `_zero_crossings()`, `_edge()` |
 | Scan margins | 5 years either side of the range; 40 years for progressed Mercury, Venus and Mars; a window's closing edge searched up to 60 years after `Exact` | `MARGIN`, `SLOW_MARGIN`, `EDGE_LIMIT` |
 | Range limit | 120 years, after a start before birth is moved to the birth date | `MAX_YEARS` |
-| Ephemeris | `ephe/` here, else the sibling `natal-chart/ephe/` | top of `scripts/progressions.py` |
+| Ephemeris | `ephe/` here, else the sibling `natal-chart/ephe/`, else pyswisseph's built-in Moshier ephemeris (no Chiron) | `EPHE_DIR`, `ephemeris_files_present()` |
 
-- A target on the birth moment reproduces the natal chart under both angle methods with a zero arc, and a directed chart is the natal chart shifted by the arc; the tests check both, along with the example's figures (age 37.0001, arc 35.2991°, progressed Sun 29°35' Cancer, progressed Moon 6°48' Leo) and that each secondary `Exact` date puts the moving point within 0.05° of the aspect.
+- A target on the birth moment reproduces the natal chart under both angle methods with a zero arc, and a directed chart is the natal chart shifted by the arc; the tests check both, along with the example's figures (age 37.0001, arc 35.2991°, progressed Sun 29°35' Cancer, progressed Moon 6°48' Leo), that each secondary `Exact` date puts the moving point within 0.05° of the aspect, and that a one-day range on a row's `Exact`, `Orb from` or `Orb to` date lists that row with the same dates.
 - A ten-year timeline takes about a second.
 - The script imports nothing from the other skill folders; the helpers it needs (sign formatting, house placement, the aspect table, house-from-ARMC, the grid renderer, the argument parser and chart loader) are copied from `natal-chart` and `composite`, so the folder is copyable on its own.
 
@@ -269,8 +270,7 @@ Progressions describe timing and themes, not outcomes. Describe what a period em
 | Issue | Fix |
 |---|---|
 | `ModuleNotFoundError: swisseph` | Run `pip install pyswisseph` (it compiles from source; on Debian upgrade `setuptools` inside a venv first) |
-| `SwissEph file 'seas_18.se1' not found` on a timeline | The ephemeris files are missing and the natal chart has Chiron; run `python natal-chart/scripts/fetch_ephemeris.py` (or copy the files into `ephe/` here) |
-| Chiron missing from a progressed chart | Same cause: without the ephemeris files the progressed chart leaves Chiron out. Fetch the files and run again |
+| `Note: chiron_unavailable` | The ephemeris files are missing, so progressed Chiron is left out (Step 3); run `python natal-chart/scripts/fetch_ephemeris.py` (or copy the files into `ephe/` here) and run again, or tell the user Chiron is omitted |
 | `progressions: this is a <chart_type> chart, not a natal one; progress the natal chart instead` | The input is a return, composite, Davison, or progressed or directed chart; pass the natal `chart.json` |
 | `progressions: this natal chart has no real moment ...` | The chart's `julian_day_ut`, `datetime_utc` or `timezone` is null; recast it with `natal-chart` |
 | `give exactly one of --date (a chart) and --timeline (an event list)` | Pass one: `--date` for a chart, `--timeline --start --end` for the event list |
@@ -284,12 +284,13 @@ Progressions describe timing and themes, not outcomes. Describe what a period em
 | `<start> to <end> is over 120 years; split it into shorter ranges` | Run several shorter timelines |
 | `--grid and --out are the same file` | Choose a different `--grid`, or let it default to `<out stem>_aspects.md` |
 | `--out <path> is the input chart` (or `--grid`) | Choose a different output name; the natal chart is never overwritten |
-| `No such file or directory` naming the output | `--out` and `--grid` must be in a folder that exists; create it first |
+| `--grid <path>: the folder <folder> does not exist; create it first` (or `--out`) | `--out` and `--grid` must be in a folder that exists; create it first. Nothing is written until both are valid |
+| `--out <path> is a folder; give a file name` (or `--grid`) | Give a file name, not a folder |
 | `expected schema_version 1`, `not valid JSON`, `missing meta.name`, `missing bodies` | The file is not a `natal-chart` output or is truncated; re-cast it |
 | `Note: --angles ignored because the natal chart has no birth time` | Expected for an untimed chart: there are no angles to progress |
 | Every secondary row says `Uncertain` `yes` | The natal chart has no birth time; see "Unknown birth time" |
 | An event whose `Exact` is outside the range | Expected: its window overlaps the range. Mercury, Venus and Mars windows near a station can last decades |
-| The same Sun aspect twice, `secondary` and `solar arc` | Expected: the directed Sun is the progressed Sun; read the pair as one event |
+| No `solar arc` rows moving the Sun | Expected: the directed Sun is the progressed Sun, so its aspects are the `secondary` Sun rows |
 | No MC rows under `secondary` | Expected with the default solar-arc angles: the progressed MC is the directed MC, listed under `solar arc`. Use `--angles naibod` for a separate progressed MC |
 | A progressed planet stations close to a natal point but has no aspect row | It never perfects within 1°; read the station row's `Detail` degree (see "Reading the timeline") |
 | `Note: time_unknown` and `Note: moon_uncertain` | The natal chart has no birth time: no angles or houses, and the progressed Moon is a range. See "Unknown birth time" |
