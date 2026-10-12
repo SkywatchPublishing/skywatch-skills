@@ -4,13 +4,13 @@ Generates a complete daily planetary aspect list for any month and year, exporte
 
 **Bodies:** Sun, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto
 **Aspects:** conjunction, sextile, square, trine, opposition, within a 1° orb
-**Extra:** Moon aspects include the time they perfect, in Pacific time
+**Extra:** every aspect the Moon perfects each day, with the time it perfects, in Pacific time
 
 ## Example output
 
 | Date | Planet 1 | Aspect | Planet 2 | Orb (°) | Exact Time |
 |---|---|---|---|---|---|
-| 2026-04-16 | Moon | Square | Jupiter | 0.061 | 11:50 AM PDT |
+| 2026-04-16 | Moon | Square | Jupiter | 0.0 | 11:54 AM PDT |
 | 2026-04-16 | Mars | Sextile | Pluto | 0.002 | |
 
 A full month is in [`examples/aspects_april_2026.csv`](examples/aspects_april_2026.csv).
@@ -40,8 +40,17 @@ Requires Python 3.9 or newer.
 ## How it works
 
 - Slow bodies are sampled at noon Pacific each day. An aspect is listed when its orb is within 1° at that moment.
-- The Moon is scanned in 10-minute steps across the day to find the moment of closest exactness.
-- Timezone, orb, step size, bodies, and aspects are constants at the top of `scripts/compute_aspects.py`, so the skill adapts without code surgery.
+- The Moon is sampled every hour across the day and each aspect it perfects is bisected to the second, so every Moon aspect gets a row with its time to the minute, not only the ones near noon. Moon rows show an orb of `0.0` because they are listed at the moment of perfection.
+- Timezone, orb, sampling step, bodies, and aspects are constants at the top of `scripts/compute_aspects.py`, so the skill adapts without code surgery.
+
+## Tests
+
+```bash
+pip install pyswisseph pytest
+python -m pytest astrology-ephemeris/tests -q
+```
+
+The lunar phases of April 2026 are checked against the times the U.S. Naval Observatory publishes, and the slow-planet rows against the committed example.
 
 ## Why it exists
 
