@@ -159,10 +159,17 @@ def planet_ring(chart: dict, asc: float) -> str:
     true_lons = [chart["bodies"][n]["longitude"] for n in names]
     shown = g.spread(true_lons, MIN_GAP)
     labels = [degree_label(chart["bodies"][n]) for n in names]
-    # stagger the degree labels of close neighbours through three radii, so the labels do not touch
+    # stagger the degree labels of close neighbours through three radii, so the labels do not touch;
+    # walk from just after the widest gap so a cluster straddling 0 Aries is not cut by the seam
+    order = sorted(range(len(names)), key=lambda k: shown[k])
+    count = len(order)
+    if count:
+        gaps = [(shown[order[(k + 1) % count]] - shown[order[k]]) % 360.0 for k in range(count)]
+        start = (max(range(count), key=lambda k: gaps[k]) + 1) % count
+        order = order[start:] + order[:start]
     label_r = {}
     prev, level = None, 0
-    for i in sorted(range(len(names)), key=lambda k: shown[k]):
+    for i in order:
         clash = prev is not None and _labels_clash(shown[prev], shown[i], labels[prev], labels[i])
         level = (level + 1) % LABEL_LEVELS if clash else 0
         label_r[i] = R_LABEL - LABEL_STAGGER * level
