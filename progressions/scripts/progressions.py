@@ -354,7 +354,7 @@ def directed_chart(natal: dict, tjd: float) -> dict:
 
 ORB = 1.0                  # timeline window, degrees either side of exact
 STEP = 15.0                # days of real time between samples
-TOL = 1 / 1440             # bisect to a minute so printed local dates do not depend on the sample grid
+TOL = 1 / 1440             # bisect to a minute; _settle then puts each moment on its side of local midnight
 MARGIN = 5 * YEAR          # scan this far beyond the range so windows overlapping it are found
 SLOW_MARGIN = 40 * YEAR    # the same for movers that can stall at a station: windows up to ~37 years (Mars)
 EDGE_LIMIT = 60 * YEAR     # look this far past exact for a window's closing edge; beyond it the window is open
@@ -365,15 +365,37 @@ STATION_BODIES = ["Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Ne
 TIME_SENSITIVE = {"Moon", "Sun", "Mercury", "Venus", "Mars"}
 
 
-def _bisect(f, lo: float, hi: float, flo) -> float:
-    """f(lo) == flo and f(hi) != flo; narrow to TOL and return the midpoint."""
+def _bisect(f, lo: float, hi: float, flo, tz: str) -> float:
+    """f(lo) == flo and f(hi) != flo; narrow to TOL and return the moment of the change, on its own local date."""
     while hi - lo > TOL:
         mid = (lo + hi) / 2
         if f(mid) == flo:
             lo = mid
         else:
             hi = mid
-    return (lo + hi) / 2
+    return _settle(f, lo, hi, flo, tz)
+
+
+def _next_midnight(jd: float, tz: str) -> float:
+    """Julian day (UT) at which the local date after jd's begins in `tz`: its 00:00, or on a day whose clocks skip
+    midnight the moment they jump past it (zoneinfo reads a skipped time at the offset before the jump, and a
+    repeated one at its first occurrence)."""
+    y, m, d, h = swe.revjul(jd)
+    u = dt.datetime(y, m, d, tzinfo=dt.timezone.utc) + dt.timedelta(hours=h)
+    return local_jd(u.astimezone(ZoneInfo(tz)).date() + dt.timedelta(days=1), dt.time(0), tz)
+
+
+def _settle(f, lo: float, hi: float, flo, tz: str) -> float:
+    """The moment to report for a change of f inside the final bracket (lo, hi]: its midpoint, unless a local
+    midnight falls inside, where f is evaluated to keep the half that holds the change. The moment is then on the
+    change's side of midnight, so its local date is exact whatever the bracket, and printed dates do not depend
+    on the sample grid. Before midnight it stays a second clear of it, as jd_to_local_date rounds to the second."""
+    m = _next_midnight(lo, tz)
+    if m <= hi:
+        if f(m) == flo:
+            return (m + hi) / 2          # the change comes after midnight: the later date
+        hi = m                           # at or before it: the earlier date
+    return min((lo + hi) / 2, m - 1 / 86400)
 
 
 def _grid(t0: float, t1: float) -> list[float]:
@@ -384,7 +406,7 @@ def _grid(t0: float, t1: float) -> list[float]:
     return ts
 
 
-def _zero_crossings(g, ts, gs) -> list[float]:
+def _zero_crossings(g, ts, gs, tz: str) -> list[float]:
     """Where g (values in [-180, 180)) crosses zero between samples, ignoring the ±180 seam."""
     out = []
     for (a, ga), (b, gb) in zip(zip(ts, gs), zip(ts[1:], gs[1:])):
@@ -392,23 +414,24 @@ def _zero_crossings(g, ts, gs) -> list[float]:
         # polar circle, where the Ascendant can jump ~180° (natal-chart falls back to whole sign there): like
         # the ±180 seam, that jump is not a crossing.
         if (ga < 0 <= gb or ga >= 0 > gb) and abs(gb - ga) < 90:
-            out.append(_bisect(lambda x: g(x) >= 0, a, b, ga >= 0))
+            out.append(_bisect(lambda x: g(x) >= 0, a, b, ga >= 0, tz))
     return out
 
 
-def _edge(g, te: float, direction: int, bound: float) -> float | None:
+def _edge(g, te: float, direction: int, bound: float, tz: str) -> float | None:
     """First time from te toward `bound` (direction ±1) where |g| reaches ORB; None if it stays inside to bound."""
     t = te
     while (bound - t) * direction > 0:
         n = min(t + STEP, bound) if direction > 0 else max(t - STEP, bound)
         if abs(g(n)) >= ORB:
             lo, hi = (t, n) if direction > 0 else (n, t)
-            return _bisect(lambda x: abs(g(x)) >= ORB, lo, hi, abs(g(lo)) >= ORB)
+            return _bisect(lambda x: abs(g(x)) >= ORB, lo, hi, abs(g(lo)) >= ORB, tz)
         t = n
     return None
 
 
-def _aspect_events(technique: str, mover: str, m, targets: dict, ts: list[float], birth_jd: float) -> list[dict]:
+def _aspect_events(technique: str, mover: str, m, targets: dict, ts: list[float], tz: str,
+                   birth_jd: float) -> list[dict]:
     ms = [m(t) for t in ts]                      # evaluate the mover once per sample
     rows = []
     for tname, tlon in targets.items():
@@ -419,23 +442,23 @@ def _aspect_events(technique: str, mover: str, m, targets: dict, ts: list[float]
                 off = tlon + sgn * angle
                 g = lambda t, o=off: wrapped(m(t) - o)
                 gs = [wrapped(v - off) for v in ms]
-                for te in _zero_crossings(g, ts, gs):
+                for te in _zero_crossings(g, ts, gs, tz):
                     if tname == mover and te - birth_jd < STEP:
                         continue         # a point leaving its own natal place; rounding makes it look like a pass
-                    start = _edge(g, te, -1, birth_jd)
+                    start = _edge(g, te, -1, birth_jd, tz)
                     rows.append({"technique": technique, "event": "aspect", "moving": mover, "aspect": aname,
                                  "target": tname, "exact": te, "from": birth_jd if start is None else start,
-                                 "to": _edge(g, te, +1, te + EDGE_LIMIT), "detail": ""})
+                                 "to": _edge(g, te, +1, te + EDGE_LIMIT, tz), "detail": ""})
     return rows
 
 
-def _state_events(technique: str, event: str, mover: str, state, ts: list[float], describe) -> list[dict]:
+def _state_events(technique: str, event: str, mover: str, state, ts: list[float], tz: str, describe) -> list[dict]:
     """Rows where state(t) changes between samples; describe(old, new, exact) gives the Detail."""
     rows = []
     vals = [state(t) for t in ts]
     for (a, va), (b, vb) in zip(zip(ts, vals), zip(ts[1:], vals[1:])):
         if va != vb:
-            te = _bisect(state, a, b, va)
+            te = _bisect(state, a, b, va, tz)
             rows.append({"technique": technique, "event": event, "moving": mover, "aspect": "", "target": "",
                          "exact": te, "from": None, "to": None, "detail": describe(va, vb, te)})
     return rows
@@ -494,7 +517,7 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
     for name in SECONDARY_MOVERS:
         if name in natal["bodies"]:
             rows += _aspect_events("secondary", name, prog_lon(name), targets,
-                                   slow_ts if name in SLOW_MOVERS else ts, bj)
+                                   slow_ts if name in SLOW_MOVERS else ts, tz, bj)
     if timed:
         # With solar-arc angles the progressed MC is the directed MC by definition; list it once, under solar arc.
         moving = (("Ascendant", "ascendant"),)
@@ -502,23 +525,23 @@ def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "so
             moving += (("MC", "mc"),)
         houses_at = house_mover(natal, angles_method)
         for ang, key in moving:
-            rows += _aspect_events("secondary", ang, lambda t, k=key: houses_at(t)["angles"][k], targets, ts, bj)
+            rows += _aspect_events("secondary", ang, lambda t, k=key: houses_at(t)["angles"][k], targets, ts, tz, bj)
     for name, lon in targets.items():
         # The directed Sun is the progressed Sun (the arc is the progressed Sun's travel); list it once, under
         # secondary.
         if name != "Sun":
-            rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts, bj)
+            rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts, tz, bj)
     for name in progressed:
         f = prog_lon(name)
-        rows += _state_events("secondary", "ingress", name, lambda t, f=f: int((f(t) % 360) // 30), ts,
+        rows += _state_events("secondary", "ingress", name, lambda t, f=f: int((f(t) % 360) // 30), ts, tz,
                               lambda a, b, t: f"enters {SIGNS[b]}")
     if timed:
         cusps, f = natal["houses"]["cusps"], prog_lon("Moon")
-        rows += _state_events("secondary", "house", "Moon", lambda t: house_of(f(t), cusps), ts,
+        rows += _state_events("secondary", "house", "Moon", lambda t: house_of(f(t), cusps), ts, tz,
                               lambda a, b, t: f"enters natal house {b}")
     for name in STATION_BODIES:
         if name in progressed:
-            rows += _state_events("secondary", "station", name, prog_retro(name), ts,
+            rows += _state_events("secondary", "station", name, prog_retro(name), ts, tz,
                                   lambda a, b, t, f=prog_lon(name):
                                   f"turns {'retrograde' if b else 'direct'} at {format_degree(f(t))}")
 

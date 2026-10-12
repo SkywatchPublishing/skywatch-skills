@@ -1,6 +1,7 @@
 import datetime as dt
 import json
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 import swisseph as swe
@@ -250,11 +251,51 @@ def signatures(rows):
     return {tuple(r[k] for k in SIGNATURE) for r in rows}
 
 
-# Crossings are bisected to a minute, so a moment within about 30 s of local midnight can still land on either
-# date. With the Swiss files no date of this chart does; with the Moshier fallback the Moon sextile Saturn window
-# closes 14 s before midnight on 2035-12-14.
-@pytest.mark.needs_ephemeris
-def test_printed_dates_do_not_depend_on_the_sample_grid(natal, rows, monkeypatch):
+# The moments a local date begins, in UTC: an ordinary New York night, each New York DST change day and the day
+# after it, and Havana, whose clocks skip midnight in March (the day begins at 01:00) and run its first hour
+# twice in November (the day begins at the first 00:00).
+DAY_STARTS = [
+    ("America/New_York", D(2035, 12, 14), dt.datetime(2035, 12, 14, 5, tzinfo=dt.timezone.utc)),
+    ("America/New_York", D(2027, 3, 14), dt.datetime(2027, 3, 14, 5, tzinfo=dt.timezone.utc)),   # 23 hours long
+    ("America/New_York", D(2027, 3, 15), dt.datetime(2027, 3, 15, 4, tzinfo=dt.timezone.utc)),
+    ("America/New_York", D(2027, 11, 7), dt.datetime(2027, 11, 7, 4, tzinfo=dt.timezone.utc)),   # 25 hours long
+    ("America/New_York", D(2027, 11, 8), dt.datetime(2027, 11, 8, 5, tzinfo=dt.timezone.utc)),
+    ("America/Havana", D(2027, 3, 14), dt.datetime(2027, 3, 14, 5, tzinfo=dt.timezone.utc)),
+    ("America/Havana", D(2027, 11, 7), dt.datetime(2027, 11, 7, 4, tzinfo=dt.timezone.utc)),
+]
+
+
+@pytest.mark.parametrize("seconds", [-10, 10, -0.3, 0.3])
+@pytest.mark.parametrize("tz, day, begins", DAY_STARTS, ids=[f"{tz}-{day}" for tz, day, _ in DAY_STARTS])
+def test_a_change_beside_local_midnight_gets_its_own_date_from_any_bracket(tz, day, begins, seconds):
+    root = begins + dt.timedelta(seconds=seconds)
+    true_date = root.astimezone(ZoneInfo(tz)).date()
+    assert true_date == (day if seconds > 0 else day - dt.timedelta(days=1))
+    r = swe.julday(root.year, root.month, root.day,
+                   root.hour + root.minute / 60 + (root.second + root.microsecond / 1e6) / 3600)
+    changed = lambda t: t - r >= 0          # a monotone function crossing zero at the root, as _zero_crossings tests
+    # The root at 24 phases across the final bracket: of a sample step, which bisection leaves ~40 s wide, and of
+    # a bracket under a second wide, narrower than TOL from the start as a grid's last step can be. Wherever the
+    # final bracket falls, the moment returned is on the root's date.
+    final, narrow = pg.STEP / 2 ** 15, 0.6 / 86400
+    for p in [(i + 0.5) / 24 for i in range(24)]:
+        for lo, hi in ((r - pg.STEP / 2 - p * final, r + pg.STEP / 2 - p * final),
+                       (r - p * narrow, r + (1 - p) * narrow)):
+            t = pg._bisect(changed, lo, hi, False, tz)
+            assert pg.jd_to_local_date(t, tz) == true_date, (hi - lo, p)
+            assert abs(t - r) <= pg.TOL + 1 / 86400
+
+
+# Crossings are bisected to a minute and then settled on their side of any local midnight in the final bracket, so
+# no printed date depends on the grid. With the Swiss files no date of this chart falls within a minute of
+# midnight; with the Moshier fallback the Moon sextile Saturn window closes 14 s before 2035-12-14 begins.
+@pytest.mark.parametrize("ephemeris", ["files", "moshier"])
+def test_printed_dates_do_not_depend_on_the_sample_grid(natal, rows, ephemeris, request, monkeypatch):
+    if ephemeris == "moshier":
+        request.getfixturevalue("no_ephemeris")
+        rows = pg.timeline(natal, START, END)
+        assert [r["to"] for r in rows if (r["technique"], r["moving"], r["aspect"], r["target"])
+                == ("secondary", "Moon", "Sextile", "Saturn")] == [D(2035, 12, 13)]
     # The 15-day sample grid starts MARGIN before the range (SLOW_MARGIN for Mercury, Venus and Mars; here that
     # is before birth, so their grid starts at the birth moment), so each range samples at its own phase. Moving
     # the grid start by a fraction of a step must not move a single printed date.

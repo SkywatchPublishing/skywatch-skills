@@ -116,8 +116,10 @@ clock times. A progressed planet that turns back across a natal point gives
 one row per exact pass, each with its own window.
 
 Method: sample target dates every 15 days, detect crossings of the exact
-angle and of the ±1° window edges, and bisect each to the minute, so a
-printed local date does not depend on where the sample grid falls.
+angle and of the ±1° window edges, and bisect each to the minute; when a
+local midnight falls inside that last minute, the crossing is tested at
+midnight too and the half holding it kept, so a printed local date is exact
+and does not depend on where the sample grid falls.
 Progressed Mercury, Venus and Mars can stall near a station, so their
 windows can last decades (up to about 37 years for Mars); they are scanned
 40 years either side of the range rather than 5. A station that comes

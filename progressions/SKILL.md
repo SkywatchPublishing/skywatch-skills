@@ -192,7 +192,7 @@ For a sidereal chart the arithmetic is done in tropical longitude and shifted ba
 
 **The Sun is listed once, under secondary.** The true solar arc is the distance the progressed Sun has moved, so the directed Sun is always exactly the progressed Sun, and its aspects are listed once, as `secondary` rows (in the example: Sun sextile Mercury 2034-02-20, Sun opposition Node 2036-05-20, Sun quincunx Uranus 2036-06-02). There are no `solar arc` rows moving the Sun; present these as aspects of the progressed (and directed) Sun. The MC is the mirror case: with the default solar-arc angles it is listed once, under `solar arc`.
 
-**Dates and the noon chart.** `Exact` is the local calendar date at the birthplace on which the aspect perfects, found to within a minute, so it does not shift with the range asked for. The moment of perfection can fall earlier or later in that day than the local noon that a `--date` chart for the same date is cast for, so that chart shows the aspect a few hundredths of a degree from exact, not at 0.000°.
+**Dates and the noon chart.** `Exact` is the local calendar date at the birthplace on which the aspect perfects, found to within a minute and, when that minute spans local midnight, placed on the right side of it, so the date is exact and does not shift with the range asked for. The moment of perfection can fall earlier or later in that day than the local noon that a `--date` chart for the same date is cast for, so that chart shows the aspect a few hundredths of a degree from exact, not at 0.000°.
 
 ---
 
@@ -254,7 +254,7 @@ Progressions describe timing and themes, not outcomes. Describe what a period em
 | Progressed angles | Solar-arc: MC = natal MC + arc, ARMC from that MC. Naibod: natal ARMC + 0.9856473° per year. Then `swe.houses_armc` at the birth latitude with the birth obliquity; whole-sign fallback flagged `polar_fallback_whole_sign` at polar latitudes; sidereal charts shifted with the Lahiri ayanamsa (with nutation) at the progressed instant | `house_mover()`, `houses_from_armc()` |
 | Directed chart | Every natal longitude, angle and cusp + arc; whole-sign cusps from the directed Ascendant's sign | `directed_chart()` |
 | Chart aspects | Natal orb table (8° conjunction, opposition, square, trine; 6° sextile; 3° quincunx; +2° with the Sun or Moon), Ascendant-MC pair excluded | `find_aspects()` |
-| Timeline sampling | Every 15 days of real time; crossings of exact and of the ±1° edges bisected to the minute; stations from a sign change in progressed speed | `STEP`, `TOL`, `_zero_crossings()`, `_edge()` |
+| Timeline sampling | Every 15 days of real time; crossings of exact and of the ±1° edges bisected to the minute, then settled on their side of a local midnight inside that minute; stations from a sign change in progressed speed | `STEP`, `TOL`, `_zero_crossings()`, `_edge()`, `_settle()` |
 | Scan margins | 5 years either side of the range; 40 years for progressed Mercury, Venus and Mars; a window's closing edge searched up to 60 years after `Exact` | `MARGIN`, `SLOW_MARGIN`, `EDGE_LIMIT` |
 | Range limit | 120 years, after a start before birth is moved to the birth date | `MAX_YEARS` |
 | Ephemeris | `ephe/` here, else the sibling `natal-chart/ephe/`, else pyswisseph's built-in Moshier ephemeris (no Chiron) | `EPHE_DIR`, `ephemeris_files_present()` |
