@@ -26,6 +26,15 @@ def format_degree(lon: float) -> str:
     return f"{whole}°{minutes:02d}' {sign}"
 
 
+def format_utc_offset(off: dt.timedelta) -> str:
+    """'+HH:MM' / '-HH:MM'. Historic local mean time has seconds (New York 1880 is -04:56:02);
+    they round to the nearest minute, half a minute away from zero."""
+    seconds = int(off.total_seconds())
+    hours, minutes = divmod((abs(seconds) + 30) // 60, 60)
+    sign = "-" if seconds < 0 and (hours or minutes) else "+"
+    return f"{sign}{hours:02d}:{minutes:02d}"
+
+
 def house_of(lon: float, cusps: list[float]) -> int:
     lon %= 360
     for i in range(12):
@@ -95,7 +104,7 @@ def build_chart(name: str, date: dt.date, time: dt.time | None, timezone: str, l
             "datetime_local": local.replace(tzinfo=None).isoformat(),
             "timezone": timezone,
             "datetime_utc": local.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "utc_offset": local.isoformat()[-6:],
+            "utc_offset": format_utc_offset(local.utcoffset()),
             "julian_day_ut": round(jd, 7),
             "time_unknown": "time_unknown" in flags,
             "moon_range": moon,
