@@ -289,10 +289,23 @@ def great_circle_midpoint(lat1, lon1, lat2, lon2) -> tuple[float, float]:
     return math.degrees(lat), ((math.degrees(lon) + 540.0) % 360.0) - 180.0
 
 
+def _utc_instant(chart: dict, side: str) -> dt.datetime:
+    """``meta.datetime_utc`` as an aware datetime; ValueError naming the chart if it is unreadable."""
+    value = chart["meta"]["datetime_utc"]
+    try:
+        return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    except ValueError:
+        raise ValueError(f"chart {side} ({chart['meta'].get('name')}): unreadable meta.datetime_utc {value!r}; "
+                         f"expected YYYY-MM-DDTHH:MM:SSZ") from None
+
+
 def davison_inputs(a: dict, b: dict) -> tuple[dt.datetime, float, float]:
-    """The Davison moment (mean of the two UTC instants) and place (great-circle midpoint)."""
-    ta = dt.datetime.strptime(a["meta"]["datetime_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
-    tb = dt.datetime.strptime(b["meta"]["datetime_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    """The Davison moment (mean of the two UTC instants) and place (great-circle midpoint).
+
+    Raises ValueError for an unreadable ``meta.datetime_utc`` or antipodal birthplaces.
+    """
+    ta = _utc_instant(a, "A")
+    tb = _utc_instant(b, "B")
     when = ta + (tb - ta) / 2
     la, lb = a["meta"]["location"], b["meta"]["location"]
     lat, lon = great_circle_midpoint(la["latitude"], la["longitude"], lb["latitude"], lb["longitude"])
@@ -362,8 +375,9 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
     the mean instant (not at the mean of the two noons, and not at the mean instant itself), with
     ``time_unknown`` set and no angles or houses. natal-chart writes the aspect grid to ``grid``.
 
-    Raises ValueError when the charts disagree on zodiac or node, or when the birthplaces are
-    antipodal (no unique midpoint).
+    Raises ValueError when the charts disagree on zodiac or node, when either chart's
+    ``meta.datetime_utc`` is not ``YYYY-MM-DDTHH:MM:SSZ``, or when the birthplaces are antipodal
+    (no unique midpoint).
     """
     grid = grid or out.with_suffix(".md")
     ma, mb = a["meta"], b["meta"]
@@ -372,10 +386,7 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
             raise ValueError(f"charts disagree on {key}: {ma.get(key)!r} vs {mb.get(key)!r}; "
                              f"recast one of them so both match")
 
-    try:
-        when, lat, lon = davison_inputs(a, b)
-    except ValueError as exc:
-        raise ValueError("birthplaces are antipodal; no unique midpoint") from exc
+    when, lat, lon = davison_inputs(a, b)
     from timezonefinder import TimezoneFinder
     tz = TimezoneFinder().timezone_at(lat=lat, lng=lon)
     extra_flags = []

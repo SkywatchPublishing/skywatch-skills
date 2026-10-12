@@ -90,7 +90,7 @@ Exit codes:
 | Code | Meaning |
 |---|---|
 | `0` | Success; `Wrote <out> and <grid>` followed by one `Note:` line per flag in `meta.flags`. A flag natal-chart already announced while casting (a Davison or a birth string) is not repeated. If `--houses` was given but the composite has no houses (an untimed side) a `Note: --houses ignored ...` line follows. |
-| `1` | Bad arguments (both `--a` and `--a-birth`, or neither; place flags with `--method davison`; `--lat` without `--lon`; a mix of place flags; `--out` that is only an extension; `--grid` naming the same file as `--out`), an unreadable or malformed chart file (invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`), the two charts disagreeing on zodiac or node, antipodal birthplaces on a Davison chart (`birthplaces are antipodal; no unique midpoint`), or `natal-chart` not found when it is needed. One line on stderr. |
+| `1` | Bad arguments (both `--a` and `--a-birth`, or neither; place flags with `--method davison`; `--lat` without `--lon`; a mix of place flags; `--out` that is only an extension; `--grid` naming the same file as `--out`), an unreadable or malformed chart file (invalid JSON, wrong `schema_version`, no `meta.name` or `bodies`), the two charts disagreeing on zodiac or node, an unreadable `meta.datetime_utc` on a Davison chart (`chart A (<name>): unreadable meta.datetime_utc ...`), antipodal birthplaces on a Davison chart (`birthplaces are antipodal; no unique midpoint`), or `natal-chart` not found when it is needed. One line on stderr. |
 | `2` | A `--city` (in a birth string or as the reference place) matched several places. The natal-chart candidate table is printed on stdout; nothing is written. |
 
 On exit `2`, show the candidate table to the user and ask which place they mean, exactly as the `natal-chart` skill does. Then re-run with `--geonameid <id>` in place of `--city` (inside the birth string, or as the reference flag). If the user already said which one ("Paris, Texas"), write `--city 'Paris, TX'`.
@@ -177,6 +177,7 @@ A midpoint composite is not a moment in time: do not describe it as "the sky on"
 | `--lat and --lon must be given together` / `pass exactly one of --city, --geonameid, or --lat/--lon` | One reference place, given one way. |
 | `--grid and --out are the same file` | Pick a different `--grid` path or let it default to `<out stem>.md`. |
 | `--out needs a file name, not just an extension` | `--out .json` has an empty stem; give a name such as `--out ada_bob.json`. |
+| `chart A (<name>): unreadable meta.datetime_utc '<value>'; expected YYYY-MM-DDTHH:MM:SSZ` (or `chart B`) | That chart's `meta.datetime_utc` is not whole-second UTC in this form (fractional seconds, an offset, or hand-edited); re-cast it with `natal-chart`. |
 | `birthplaces are antipodal; no unique midpoint` | The two birthplaces are exactly opposite each other on the globe, so every great circle between them is equally short and no Davison place exists; use the midpoint method. |
 | `Note: --houses ignored because the composite has no houses` | One side is untimed, so there are no houses for `--houses` to shape. Expected. |
 | `expected schema_version 1`, `not valid JSON`, `missing meta.name`, `missing bodies` | The file is not a `natal-chart` output or is truncated; re-cast it. |
