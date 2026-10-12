@@ -263,3 +263,144 @@ def directed_chart(natal: dict, tjd: float) -> dict:
                   "cusps": [(c + arc) % 360 for c in natal["houses"]["cusps"]],
                   "angles": {k: (v + arc) % 360 for k, v in natal["angles"].items()}, "flags": []}
     return _assemble(natal, raw, houses, "solar_arc_directed", tjd, arc, None)
+
+
+ORB = 1.0            # timeline window, degrees either side of exact
+STEP = 15.0          # days of real time between samples
+TOL = 0.25           # bisect crossings to a quarter day
+MARGIN = 5 * YEAR    # scan this far beyond the range so windows overlapping it are found
+SECONDARY_MOVERS = ["Moon", "Sun", "Mercury", "Venus", "Mars"]
+STATION_BODIES = ["Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "Chiron"]
+
+
+def _bisect(f, lo: float, hi: float, flo) -> float:
+    """f(lo) == flo and f(hi) != flo; narrow to TOL and return the midpoint."""
+    while hi - lo > TOL:
+        mid = (lo + hi) / 2
+        if f(mid) == flo:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
+def _grid(t0: float, t1: float) -> list[float]:
+    ts, t = [t0], t0
+    while t < t1:
+        t = min(t + STEP, t1)
+        ts.append(t)
+    return ts
+
+
+def _zero_crossings(g, ts, gs) -> list[float]:
+    """Where g (values in (-180, 180]) crosses zero between samples, ignoring the ±180 seam."""
+    out = []
+    for (a, ga), (b, gb) in zip(zip(ts, gs), zip(ts[1:], gs[1:])):
+        if (ga < 0 <= gb or ga >= 0 > gb) and abs(gb - ga) < 90:
+            out.append(_bisect(lambda x: g(x) >= 0, a, b, ga >= 0))
+    return out
+
+
+def _edge(g, te: float, direction: int, limit: float = 60 * YEAR) -> float | None:
+    """First time from te (direction ±1) where |g| reaches ORB; None if it never does within limit."""
+    t = te
+    while abs(t - te) < limit:
+        n = t + direction * STEP
+        if abs(g(n)) >= ORB:
+            lo, hi = (t, n) if direction > 0 else (n, t)
+            return _bisect(lambda x: abs(g(x)) >= ORB, lo, hi, abs(g(lo)) >= ORB)
+        t = n
+    return None
+
+
+def _aspect_events(technique: str, mover: str, m, targets: dict, ts: list[float]) -> list[dict]:
+    ms = [m(t) for t in ts]                      # evaluate the mover once per sample
+    rows = []
+    for tname, tlon in targets.items():
+        if technique == "solar_arc" and tname == mover:
+            continue
+        for aname, angle in ASPECTS.items():
+            for sgn in ((1,) if angle in (0, 180) else (1, -1)):
+                off = tlon + sgn * angle
+                g = lambda t, o=off: wrapped(m(t) - o)
+                gs = [wrapped(v - off) for v in ms]
+                for te in _zero_crossings(g, ts, gs):
+                    rows.append({"technique": technique, "event": "aspect", "moving": mover, "aspect": aname,
+                                 "target": tname, "exact": te, "from": _edge(g, te, -1), "to": _edge(g, te, +1),
+                                 "detail": ""})
+    return rows
+
+
+def _state_events(technique: str, event: str, mover: str, state, ts: list[float], describe) -> list[dict]:
+    rows = []
+    vals = [state(t) for t in ts]
+    for (a, va), (b, vb) in zip(zip(ts, vals), zip(ts[1:], vals[1:])):
+        if va != vb:
+            rows.append({"technique": technique, "event": event, "moving": mover, "aspect": "", "target": "",
+                         "exact": _bisect(state, a, b, va), "from": None, "to": None, "detail": describe(va, vb)})
+    return rows
+
+
+def timeline(natal: dict, start: dt.date, end: dt.date, angles_method: str = "solar-arc") -> list[dict]:
+    """Dated secondary and solar arc events whose 1° window overlaps [start, end]."""
+    meta = natal["meta"]
+    tz, bj, zodiac, node = meta["timezone"], meta["julian_day_ut"], meta["zodiac"], meta.get("node", "true")
+    timed = bool(natal.get("angles"))
+    r0, r1 = target_jd(start, tz), target_jd(end, tz)
+    ts = _grid(max(bj, r0 - MARGIN), r1 + MARGIN)
+    targets = {n: b["longitude"] for n, b in natal["bodies"].items()}
+    if timed:
+        targets["Ascendant"], targets["MC"] = natal["angles"]["ascendant"], natal["angles"]["mc"]
+    flags = _flags(zodiac)
+    arcs: dict[float, float] = {}
+
+    def arc(t):
+        if t not in arcs:
+            arcs[t] = solar_arc(bj, t, zodiac)
+        return arcs[t]
+
+    def prog_lon(name):
+        ident = swe.MEAN_NODE if (name == "Node" and node == "mean") else BODIES[name]
+        return lambda t: swe.calc_ut(progressed_jd(bj, t), ident, flags)[0][0]
+
+    def prog_retro(name):
+        return lambda t: swe.calc_ut(progressed_jd(bj, t), BODIES[name], flags)[0][3] < 0
+
+    rows = []
+    for name in SECONDARY_MOVERS:
+        if name in natal["bodies"]:
+            rows += _aspect_events("secondary", name, prog_lon(name), targets, ts)
+    if timed:
+        # With solar-arc angles the progressed MC is the directed MC by definition; list it once, under solar arc.
+        moving = (("Ascendant", "ascendant"),) if angles_method == "solar-arc" else (("Ascendant", "ascendant"), ("MC", "mc"))
+        for ang, key in moving:
+            rows += _aspect_events("secondary", ang,
+                                   lambda t, k=key: moved_houses(natal, t, angles_method)["angles"][k], targets, ts)
+    for name, lon in targets.items():
+        rows += _aspect_events("solar_arc", name, lambda t, l=lon: (l + arc(t)) % 360, targets, ts)
+    for name in natal["bodies"]:
+        f = prog_lon(name)
+        rows += _state_events("secondary", "ingress", name, lambda t, f=f: int((f(t) % 360) // 30), ts,
+                              lambda a, b: f"enters {SIGNS[b]}")
+    if timed:
+        cusps, f = natal["houses"]["cusps"], prog_lon("Moon")
+        rows += _state_events("secondary", "house", "Moon", lambda t: house_of(f(t), cusps), ts,
+                              lambda a, b: f"enters natal house {b}")
+    for name in STATION_BODIES:
+        if name in natal["bodies"]:
+            rows += _state_events("secondary", "station", name, prog_retro(name), ts,
+                                  lambda a, b: "turns retrograde" if b else "turns direct")
+
+    def overlaps(r):
+        lo = r["from"] if r["from"] is not None else r["exact"]
+        hi = r["to"] if r["to"] is not None else r["exact"]
+        return hi >= r0 and lo <= r1
+
+    rows = [r for r in rows if overlaps(r)]
+    for r in rows:
+        # An untimed birth moves every secondary event by up to ~6 months; solar arc only through the Moon.
+        r["uncertain"] = (not timed) and (r["technique"] == "secondary" or "Moon" in (r["moving"], r["target"]))
+        for k in ("exact", "from", "to"):
+            r[k] = jd_to_local_date(r[k], tz) if r[k] is not None else None
+    rows.sort(key=lambda r: (r["exact"], r["technique"], r["moving"], r["target"]))
+    return rows
