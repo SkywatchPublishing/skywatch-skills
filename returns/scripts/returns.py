@@ -378,6 +378,8 @@ def main(argv=None) -> int:
 
     try:
         tz_name = resolve_timezone(natal_script, chart, place_args)
+        if "--lat" in place_args and "--tz" not in place_args:
+            place_args += ["--tz", tz_name]   # every cast uses this zone instead of looking it up again
         hits = find_returns(body_id, target, args.start, args.end, _is_sidereal(meta), shift_fn)
         args.out_dir.mkdir(parents=True, exist_ok=True)
         results = []
