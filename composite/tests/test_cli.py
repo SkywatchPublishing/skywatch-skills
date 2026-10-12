@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "composite" / "scripts" / "composite.py"
 EXAMPLE = ROOT / "natal-chart" / "examples" / "chart.json"
 PARTNER = ROOT / "synastry" / "examples" / "chart_b.json"
+MIDPOINT_EXAMPLE = ROOT / "composite" / "examples" / "composite.json"
 A_BIRTH = "--name Example --date 1990-06-15 --time 12:00 --geonameid 5128581"
 B_BIRTH = "--name Partner --date 1988-02-02 --time 09:15 --geonameid 2643743"
 
@@ -50,6 +51,23 @@ def test_davison_antipodal_birthplaces_exits_1(tmp_path):
     assert proc.returncode == 1
     assert "birthplaces are antipodal; no unique midpoint" in proc.stderr
     assert not (tmp_path / "davison.json").exists()
+
+
+@pytest.mark.parametrize("swap", [False, True], ids=["composite_as_a", "composite_as_b"])
+def test_davison_of_midpoint_composite_exits_1(tmp_path, swap):
+    # A midpoint composite has null datetime_utc and timezone: there is no moment to average.
+    pair = [str(MIDPOINT_EXAMPLE), str(EXAMPLE)]
+    if swap:
+        pair.reverse()
+    proc = run("--a", pair[0], "--b", pair[1], "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    lines = proc.stderr.strip().splitlines()
+    assert lines == ["composite: Example & Partner has no real moment (chart_type composite); "
+                     "a Davison needs two charts with birth times and places"]
+    assert proc.stdout == ""
+    assert not (tmp_path / "davison.json").exists()
+    assert not (tmp_path / "davison.md").exists()
 
 
 PROGRESSED_META = [
@@ -230,3 +248,28 @@ def test_davison_round_trips_through_sibling_skills(tmp_path):
     assert (tmp_path / "t.csv").exists()
     sibling(SYNASTRY, "--a", str(EXAMPLE), "--b", str(dav), "--out", "syn.json", "--grid", "syn.md")
     assert (tmp_path / "syn.json").exists()
+
+
+NATAL = ROOT / "natal-chart" / "scripts" / "natal_chart.py"
+
+
+def test_davison_of_sidereal_charts(tmp_path):
+    # chart.json spells the zodiac "sidereal_lahiri"; natal-chart's --zodiac accepts only "sidereal".
+    for side, birth in (("a", A_BIRTH), ("b", B_BIRTH)):
+        p = subprocess.run([sys.executable, "-I", str(NATAL), *birth.split(), "--zodiac", "sidereal",
+                            "--out", f"{side}.json", "--grid", f"{side}.md"],
+                           cwd=tmp_path, capture_output=True, text=True)
+        assert p.returncode == 0, p.stderr
+    proc = run("--a", "a.json", "--b", "b.json", "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    chart = json.loads((tmp_path / "davison.json").read_text())
+    assert chart["meta"]["zodiac"] == "sidereal_lahiri"
+
+    import swisseph as swe
+    ephe = ROOT / "natal-chart" / "ephe"
+    if (ephe / "seas_18.se1").exists():
+        swe.set_ephe_path(str(ephe))
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    (sun, *_), _ = swe.calc_ut(chart["meta"]["julian_day_ut"], swe.SUN,
+                               swe.FLG_SWIEPH | swe.FLG_SPEED | swe.FLG_SIDEREAL)
+    assert chart["bodies"]["Sun"]["longitude"] == pytest.approx(sun % 360, abs=1e-3)
