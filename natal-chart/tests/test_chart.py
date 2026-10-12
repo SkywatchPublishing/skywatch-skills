@@ -104,6 +104,27 @@ def test_build_chart_sidereal_houses_are_sidereal():
     assert cusp_shift == pytest.approx(shift, abs=0.01)
 
 
+TROMSO = {"name": "69.65, 18.96", "latitude": 69.65, "longitude": 18.96, "geonameid": None}
+
+
+def test_polar_fallback_keeps_the_requested_house_system():
+    c = ch.build_chart("Test", dt.date(1990, 6, 15), dt.time(12, 0), "Europe/Oslo", TROMSO, "placidus")
+    assert "polar_fallback_whole_sign" in c["meta"]["flags"]
+    assert c["meta"]["house_system"] == "whole_sign"
+    assert c["meta"]["house_system_requested"] == "placidus"
+
+
+def test_requested_house_system_equals_used_without_fallback():
+    c = ch.build_chart("Test", dt.date(1990, 6, 15), dt.time(12, 0), "America/New_York", NY, "koch")
+    assert c["meta"]["house_system"] == c["meta"]["house_system_requested"] == "koch"
+
+
+def test_untimed_chart_records_requested_house_system():
+    c = ch.build_chart("Test", dt.date(1990, 6, 15), None, "America/New_York", NY, "koch")
+    assert c["meta"]["house_system"] is None
+    assert c["meta"]["house_system_requested"] == "koch"
+
+
 def test_meta_carries_chart_type_and_derivation():
     c = ch.build_chart("Test", dt.date(1990, 6, 15), dt.time(12, 0), "America/New_York", NY, "placidus")
     assert c["meta"]["chart_type"] == "natal"

@@ -177,8 +177,13 @@ def _is_sidereal(meta: dict) -> bool:
 
 
 def _settings_args(meta: dict) -> list[str]:
-    """The natal chart's house system, zodiac and node, as natal-chart flags."""
-    return ["--houses", meta.get("house_system") or "placidus",
+    """The natal chart's house system, zodiac and node, as natal-chart flags.
+
+    The house system is the one the user asked for (``house_system_requested``), not the whole-sign
+    a polar natal chart fell back to, so a return cast at a lower latitude gets it back. Charts
+    written before that field existed fall back to ``house_system``, then Placidus.
+    """
+    return ["--houses", meta.get("house_system_requested") or meta.get("house_system") or "placidus",
             "--zodiac", "sidereal" if _is_sidereal(meta) else "tropical",
             "--node", meta.get("node", "true")]
 
