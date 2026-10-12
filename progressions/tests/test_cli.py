@@ -223,6 +223,10 @@ def test_birth_date_with_an_afternoon_birth_is_age_zero(tmp_path, cast):
         assert proc.returncode == 0, proc.stderr
         prog = json.loads((tmp_path / f"{method}.json").read_text(encoding="utf-8"))["meta"]["progression"]
         assert prog["age_years"] == 0.0 and prog["solar_arc"] == 0.0
+    proc = run(path, "--timeline", "--start", "1990-06-15", "--end", "1991-06-15", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    rows = read_csv(tmp_path / "progressions_timeline.csv")
+    assert rows and all(r[k] == "" or r[k] >= "1990-06-15" for r in rows for k in ("Exact", "Orb from", "Orb to"))
 
 
 @pytest.mark.parametrize("content", [None, "{not json"])
