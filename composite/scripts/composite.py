@@ -363,6 +363,12 @@ def load_chart(path: Path) -> dict:
     return chart
 
 
+def _is_sidereal(meta: dict) -> bool:
+    """chart.json spells the zodiac "sidereal_lahiri"; natal-chart's --zodiac takes "sidereal".
+    Copied from returns/scripts/returns.py."""
+    return str(meta.get("zodiac", "")).startswith("sidereal")
+
+
 def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | None = None) -> dict:
     """Cast the Davison chart of two chart.json dicts through natal-chart, writing ``out`` and ``grid``
     (default: ``out`` with a ``.md`` suffix).
@@ -375,12 +381,17 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
     the mean instant (not at the mean of the two noons, and not at the mean instant itself), with
     ``time_unknown`` set and no angles or houses. natal-chart writes the aspect grid to ``grid``.
 
-    Raises ValueError when the charts disagree on zodiac or node, when either chart's
-    ``meta.datetime_utc`` is not ``YYYY-MM-DDTHH:MM:SSZ``, or when the birthplaces are antipodal
-    (no unique midpoint).
+    Raises ValueError when either chart has no real moment (a midpoint composite: null
+    ``datetime_utc`` or ``timezone``), when the charts disagree on zodiac or node, when either
+    chart's ``meta.datetime_utc`` is not ``YYYY-MM-DDTHH:MM:SSZ``, or when the birthplaces are
+    antipodal (no unique midpoint).
     """
     grid = grid or out.with_suffix(".md")
     ma, mb = a["meta"], b["meta"]
+    for m in (ma, mb):
+        if m.get("datetime_utc") is None or m.get("timezone") is None:
+            raise ValueError(f"composite: {m['name']} has no real moment (chart_type {m.get('chart_type', 'natal')}); "
+                             "a Davison needs two charts with birth times and places")
     for key in ("zodiac", "node"):
         if ma.get(key) != mb.get(key):
             raise ValueError(f"charts disagree on {key}: {ma.get(key)!r} vs {mb.get(key)!r}; "
@@ -401,7 +412,7 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
         cmd += ["--time", local.strftime("%H:%M:%S")]
     cmd += ["--lat", f"{lat:.6f}", "--lon", f"{lon:.6f}", "--tz", tz,
             "--houses", ma.get("house_system") or "placidus",
-            "--zodiac", ma.get("zodiac", "tropical"), "--node", ma.get("node", "true"),
+            "--zodiac", "sidereal" if _is_sidereal(ma) else "tropical", "--node", ma.get("node", "true"),
             "--out", str(out), "--grid", str(grid)]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if proc.returncode != 0:
