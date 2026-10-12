@@ -56,6 +56,8 @@ Sun, Moon, Mercury, Venus, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto
 pip install pyswisseph --quiet
 ```
 
+The script does not install anything itself. Without `pyswisseph` it exits with code 1 and a one-line message saying to run `pip install pyswisseph`.
+
 ### Step 2 — Run the script
 
 ```bash
@@ -100,7 +102,7 @@ For a chronological aspectarian with exact times for every body (not only the Mo
 
 | Issue | Fix |
 |---|---|
-| `ModuleNotFoundError: swisseph` | Run `pip install pyswisseph` |
+| `compute_aspects: pyswisseph is required but could not be imported` | Run `pip install pyswisseph` in the environment the script runs in. If pip refuses with `externally-managed-environment`, create a virtual environment and install it there |
 | `zoneinfo` not found (Python < 3.9) | Run `pip install backports.zoneinfo` and change `from zoneinfo import ZoneInfo` to `from backports.zoneinfo import ZoneInfo` |
 | Output missing some months' data | Verify the month integer is 1–12 and year is 4 digits |
 | Moon times look off | Confirm your system clock is correct; the script uses `America/Los_Angeles` from the IANA tz database |
