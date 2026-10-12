@@ -6,9 +6,17 @@ aspects_*.csv
 !**/examples/aspects_*.csv
 transits_*.csv
 !**/examples/transits_*.csv
-# Swiss Ephemeris data files, fetched by natal-chart/scripts/fetch_ephemeris.py
+aspectarian_*.csv
+!**/examples/aspectarian_*.csv
+voc_*.csv
+!**/examples/voc_*.csv
+progressions_timeline*.csv
+!**/examples/progressions_timeline*.csv
+# ephemeris data: Swiss files fetched by natal-chart/scripts/fetch_ephemeris.py,
+# JPL DE440s fetched by aspectarian/scripts/fetch_ephemeris.py
 ephe/
 *.se1
+*.bsp
 # raw GeoNames dump, reduced to natal-chart/data/cities.csv by build_cities.py
 cities15000.zip
 cities15000.txt

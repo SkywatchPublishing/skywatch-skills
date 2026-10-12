@@ -13,7 +13,7 @@ description: >
 
 # Transits to Natal Skill
 
-Compare the moving sky against a cast birth chart, day by day, and write the hits as a CSV in the same one-row-per-hit style as the `astrology-ephemeris` skill's output. The input is a `chart.json` from the `natal-chart` skill; the output is a table the user can read, filter, or feed to a write-up.
+Compare the moving sky against a cast birth chart, day by day, and write the hits as a CSV in the same one-row-per-hit style as the `astrology-ephemeris` skill's output. The input is a `chart.json` from the `natal-chart` skill; the output is a table the user can read, filter, or feed to a write-up. Transits answer "what's coming up" for this year or this month; for the decade, run the `progressions` skill, whose timeline lists the slow progressed and solar arc events.
 
 ---
 
@@ -55,7 +55,7 @@ Aspects: conjunction 0°, sextile 60°, square 90°, trine 120°, quincunx 150°
 
 This skill does not take birth data. If the user has no `chart.json` yet, cast one with the `natal-chart` skill first and note where it was written. Unknown birth time is fine; the angles are simply left out.
 
-Derived charts work too: a return chart from the `returns` skill and a Davison chart from the `composite` skill are real moments with a timezone, so they scan like any natal chart. A midpoint composite has no moment (`meta.timezone` is null) and is refused with exit 1: `transits: this chart has no timezone (chart_type composite); transits need a real moment, so cast a Davison chart or use the natal chart instead`. Offer the Davison chart when the user wants transits to a relationship chart.
+Derived charts work too: a return chart from the `returns` skill and a Davison chart from the `composite` skill are real moments with a timezone, so they scan like any natal chart, and a progressed or directed chart from the `progressions` skill keeps the natal timezone, so it scans as well (transits are normally read against the natal chart, so scan one only when asked). A midpoint composite has no moment (`meta.timezone` is null) and is refused with exit 1: `transits: this chart has no timezone (chart_type composite); transits need a real moment, so cast a Davison chart or use the natal chart instead`. Offer the Davison chart when the user wants transits to a relationship chart.
 
 ### Step 2 — Install the dependency
 
@@ -109,7 +109,7 @@ Every row is the sky at 12:00 local time in the chart's timezone, once a day, th
 
 - **Slow bodies (default).** Jupiter moves well under a degree a day and the outer planets far less, so a transit within a 1° orb appears on many consecutive rows: Jupiter for a week or two, Saturn for weeks, Uranus through Pluto for months (and three times across a retrograde loop). The day the orb is smallest is the day of exactness to within a day. This is the reliable part of the output.
 - **Fast bodies (`--fast`).** The Sun moves about 1° a day and Mercury, Venus, and Mars can move more, so a transit may show on one or two rows only, or slip between two noon samples and be missed entirely on a fast day. Over a long range these bodies also produce a great many rows. Use `--fast` for a month or a few weeks, not a year.
-- **Moon (`--moon`).** The Moon moves about 13° a day, so a single noon sample with a 1° orb catches only the Moon aspects that happen to be near exact at noon, roughly one in thirteen, and the orb on those rows is the noon orb, not the moment of exactness. It is off by default because at one sample a day it is noise. When the user wants Moon transits with exact times, use the `astrology-ephemeris` skill instead, which scans the Moon in 10-minute steps.
+- **Moon (`--moon`).** The Moon moves about 13° a day, so a single noon sample with a 1° orb catches only the Moon aspects that happen to be near exact at noon, roughly one in thirteen, and the orb on those rows is the noon orb, not the moment of exactness. It is off by default because at one sample a day it is noise. When the user wants Moon transits with exact times, use the `astrology-ephemeris` skill instead, which lists every aspect the Moon perfects each day with its exact time.
 
 ---
 
