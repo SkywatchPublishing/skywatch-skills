@@ -379,3 +379,63 @@ def test_main_passes_clamped_start_and_angles(tmp_path, monkeypatch, capsys):
                     (dt.date(2027, 1, 1), dt.date(2027, 12, 31), "naibod")]
     assert (tmp_path / "progressions_timeline.csv").read_text(encoding="utf-8").splitlines() == [HEADER]
     assert "Wrote 0 events to progressions_timeline.csv" in capsys.readouterr().out
+
+
+# --- round trip through the other chart skills ----------------------------------------------------
+
+def sibling(folder, script):
+    path = ROOT / folder / "scripts" / script
+    if not path.exists():
+        pytest.skip(f"{folder} is not installed beside progressions ({path} is missing)")
+    return path
+
+
+def run_sibling(path, *args, cwd):
+    return subprocess.run([sys.executable, "-I", str(path), *map(str, args)], cwd=cwd, capture_output=True, text=True)
+
+
+@pytest.mark.parametrize("method, caption", [
+    ("secondary", "Secondary progressed for Example"), ("solar-arc", "Solar arc directed for Example"),
+])
+def test_round_trip_through_wheel_synastry_and_transits(tmp_path, method, caption):
+    wheel = sibling("chart-wheel", "chart_wheel.py")
+    synastry = sibling("synastry", "synastry.py")
+    transits = sibling("transits-to-natal", "transits.py")
+    proc = run(EXAMPLE, "--date", "2027-06-15", "--method", method, "--out", "p.json", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+
+    proc = run_sibling(wheel, "p.json", "--out", "p.svg", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    svg = (tmp_path / "p.svg").read_text(encoding="utf-8")
+    assert caption in svg and "for 2027-06-15" in svg
+
+    proc = run_sibling(synastry, "--a", "p.json", "--b", EXAMPLE, "--out", "syn.json", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    syn = json.loads((tmp_path / "syn.json").read_text(encoding="utf-8"))
+    assert syn["inter_aspects"] and syn["overlays"]["a_in_b_houses"]
+    if method == "secondary":
+        # The progressed Moon, in the natal 11th, a month from its exact opposition to the natal Node.
+        assert syn["overlays"]["a_in_b_houses"]["Moon"] == 11
+        assert [a for a in syn["inter_aspects"] if (a["a"], a["aspect"], a["b"]) == ("Moon", "Opposition", "Node")]
+
+    proc = run_sibling(transits, "p.json", "--start", "2027-06-01", "--end", "2027-06-30", "--out", "tr.csv",
+                       cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert read_csv(tmp_path / "tr.csv")
+
+
+@pytest.mark.parametrize("method", ["secondary", "solar-arc"])
+def test_returns_and_composite_refuse_progressed_charts(tmp_path, method):
+    returns = sibling("returns", "returns.py")
+    composite = sibling("composite", "composite.py")
+    sibling("natal-chart", "natal_chart.py")       # returns looks for it before reading the chart
+    proc = run(EXAMPLE, "--date", "2027-06-15", "--method", method, "--out", "p.json", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    proc = run_sibling(returns, "p.json", "--start", "2027-01-01", "--end", "2027-12-31", "--out-dir", ".",
+                       cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "returns: this is a progressed or directed chart" in proc.stderr
+    proc = run_sibling(composite, "--a", "p.json", "--b", EXAMPLE, "--out", "c.json", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "composite: progressed and directed charts can't be composited" in proc.stderr
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["p.json", "p_aspects.md"]

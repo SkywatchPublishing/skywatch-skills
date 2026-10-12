@@ -12,7 +12,7 @@ description: >
 
 # Synastry Skill
 
-Lay two cast charts over each other. The input is two `chart.json` files written by `natal-chart` (or raw birth data, which this skill passes to `natal-chart` for you); the output is `synastry.json` plus a Markdown inter-aspect grid. Any schema-version-1 chart is a valid side, including a return chart from the `returns` skill (the classic reading lays the return over the natal chart) and a Davison chart from `composite`.
+Lay two cast charts over each other. The input is two `chart.json` files written by `natal-chart` (or raw birth data, which this skill passes to `natal-chart` for you); the output is `synastry.json` plus a Markdown inter-aspect grid. Any schema-version-1 chart is a valid side, including a return chart from the `returns` skill (the classic reading lays the return over the natal chart) and a Davison chart from `composite`. A progressed or directed chart from `progressions` is accepted too: lay it over the natal chart for the progressed-to-natal aspects and the progressed planets in the natal houses at its target date.
 
 ---
 

@@ -926,7 +926,7 @@ Add `progressions_timeline*.csv` with an `!**/examples/` exception to `.gitignor
 **Files:** `README.md`, `progressions/tests/test_cli.py` (round-trip test), `chart-wheel/SKILL.md`, `synastry/SKILL.md` (one sentence each)
 
 - Root README: a `progressions` row; install note (reads a natal chart.json; needs pyswisseph; no delegation).
-- Round-trip test: the 2027-06-15 progressed chart through chart-wheel and synastry (against the natal chart) by subprocess, each exit 0; skip with a reason if a sibling is absent.
+- Round-trip test: the 2027-06-15 progressed and directed charts through chart-wheel, synastry (against the natal chart) and transits-to-natal by subprocess, each exit 0; returns and composite refuse both with exit 1; skip with a reason if a sibling is absent.
 - Run all seven test folders one at a time. Fresh-copy smoke test in the scratchpad: copy the seven chart skill folders alone, fetch ephemeris, cast the example natal chart, write both charts and a ten-year timeline, render both charts with the wheel, run synastry progressed against natal, confirm returns refuses the progressed chart, print OK.
 
 **Commit** `git commit -m "Add progressions to portfolio README"`

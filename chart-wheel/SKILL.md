@@ -103,7 +103,7 @@ See "Presenting the wheel" below.
 - Everything the wheel shows is read from `chart.json`: bodies and their longitudes, `angles`, `houses.cusps`, the `aspects` list with its `applying` flag, and `meta` for the captions. Nothing is recomputed, so the wheel always agrees with the aspect grid.
 - The geometry (angle-to-point mapping and the glyph spreading) lives in `scripts/wheel_geometry.py`, imported by sibling path; keep the two files together when copying the skill.
 - Colours, radii, glyphs and the font stack are constants at the top of `scripts/chart_wheel.py`.
-- Because the script only depends on the contract, charts written by the `returns` and `composite` skills draw without changes; only the caption differs.
+- Because the script only depends on the contract, charts written by the `returns` and `composite` skills, and the progressed and directed charts written by `progressions`, draw without changes; only the caption differs.
 
 ---
 

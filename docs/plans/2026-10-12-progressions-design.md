@@ -1,7 +1,7 @@
 # Progressions design
 
 Date: 2026-10-12
-Status: validated in conversation, ready for implementation planning
+Status: validated in conversation, implemented on this branch
 
 ## Goal
 
@@ -151,8 +151,9 @@ moving point or the target.
   angle; progressed Moon sign ingresses fall about 2.5 years apart; station
   rows match a sign change in progressed speed; untimed charts have no angle
   or house events and mark secondary rows uncertain.
-- A committed round-trip test sends a progressed chart through chart-wheel,
-  transits-to-natal and synastry.
+- A committed round-trip test sends the progressed and the directed chart
+  through chart-wheel, synastry (against the natal chart) and
+  transits-to-natal, and checks that returns and composite refuse both.
 - A golden check against a published progressed chart joins the open list.
 
 ## Packaging
