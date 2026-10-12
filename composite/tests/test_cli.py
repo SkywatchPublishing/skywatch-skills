@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "composite" / "scripts" / "composite.py"
 EXAMPLE = ROOT / "natal-chart" / "examples" / "chart.json"
 PARTNER = ROOT / "synastry" / "examples" / "chart_b.json"
+MIDPOINT_EXAMPLE = ROOT / "composite" / "examples" / "composite.json"
 A_BIRTH = "--name Example --date 1990-06-15 --time 12:00 --geonameid 5128581"
 B_BIRTH = "--name Partner --date 1988-02-02 --time 09:15 --geonameid 2643743"
 
@@ -50,6 +51,23 @@ def test_davison_antipodal_birthplaces_exits_1(tmp_path):
     assert proc.returncode == 1
     assert "birthplaces are antipodal; no unique midpoint" in proc.stderr
     assert not (tmp_path / "davison.json").exists()
+
+
+@pytest.mark.parametrize("swap", [False, True], ids=["composite_as_a", "composite_as_b"])
+def test_davison_of_midpoint_composite_exits_1(tmp_path, swap):
+    # A midpoint composite has null datetime_utc and timezone: there is no moment to average.
+    pair = [str(MIDPOINT_EXAMPLE), str(EXAMPLE)]
+    if swap:
+        pair.reverse()
+    proc = run("--a", pair[0], "--b", pair[1], "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert "Traceback" not in proc.stderr
+    lines = proc.stderr.strip().splitlines()
+    assert lines == ["composite: Example & Partner has no real moment (chart_type composite); "
+                     "a Davison needs two charts with birth times and places"]
+    assert proc.stdout == ""
+    assert not (tmp_path / "davison.json").exists()
+    assert not (tmp_path / "davison.md").exists()
 
 
 def _strip(chart: dict) -> dict:
