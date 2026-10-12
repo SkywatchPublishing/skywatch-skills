@@ -2,7 +2,8 @@
 """
 Compute planetary aspects for a given month/year using Swiss Ephemeris.
 Outputs a CSV with all major aspects (conjunction, sextile, square, trine, opposition)
-within a 1° orb. Moon aspects include exact time in PST/PDT.
+within a 1° orb at noon Pacific, plus every aspect the Moon perfects each day with its
+exact time in PST/PDT.
 
 Usage:
     python compute_aspects.py <month> <year> [output.csv]
@@ -46,10 +47,11 @@ ASPECTS = {
     "Opposition":  180,
 }
 
-ORB = 1.0          # degrees
-MOON_STEP_MIN = 10 # minutes — resolution for finding Moon exact times
+ORB = 1.0               # degrees
+MOON_SCAN_STEP_MIN = 60 # minutes between Moon samples; each crossing is then refined to the second
 PST = ZoneInfo("America/Los_Angeles")
 UTC = ZoneInfo("UTC")
+J2000 = datetime.datetime(2000, 1, 1, 12, 0, tzinfo=UTC)  # Julian Day 2451545.0
 
 # ── Ephemeris helpers ──────────────────────────────────────────────────────────
 
@@ -80,47 +82,70 @@ def aspect_name(dist: float) -> str | None:
 
 # ── Moon exact-time finder ─────────────────────────────────────────────────────
 
-def find_moon_exact_time(
-    jd_start: float,
-    jd_end: float,
-    other_planet_id: int,
-    target_angle: float,
-) -> datetime.datetime | None:
+def wrap180(x: float) -> float:
+    return (x + 180.0) % 360.0 - 180.0
+
+def jd_to_local_minute(jd: float) -> datetime.datetime:
+    """Julian Day (UT) to PST/PDT, rounded to the nearest minute."""
+    exact = J2000 + datetime.timedelta(days=jd - 2451545.0)
+    rounded = (exact + datetime.timedelta(seconds=30)).replace(second=0, microsecond=0)
+    return rounded.astimezone(PST)
+
+def refine_moon_root(other_planet_id: int, target: float, lo: float, hi: float) -> float:
+    """Bisect the moment the Moon is exactly `target` degrees ahead of the other body."""
+    def gap(jd):
+        return wrap180(get_longitude(jd, swe.MOON) - get_longitude(jd, other_planet_id) - target)
+
+    gap_lo = gap(lo)
+    while (hi - lo) * 86400 > 0.5:
+        mid = (lo + hi) / 2
+        gap_mid = gap(mid)
+        if (gap_mid >= 0) == (gap_lo >= 0):
+            lo, gap_lo = mid, gap_mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+def moon_aspects_on(date: datetime.date) -> list[tuple[str, str, datetime.datetime]]:
     """
-    Scan in MOON_STEP_MIN increments for the moment Moon's aspect to other_planet is closest to
-    exact within [jd_start, jd_end]. Returns PST/PDT datetime or None.
+    Every aspect the Moon perfects during one Pacific calendar day, as (other body, aspect,
+    local time rounded to the minute), sorted by time. The Moon is sampled every
+    MOON_SCAN_STEP_MIN minutes and each sign change of its distance from exact is bisected
+    to the second, so no aspect is missed however far it falls from noon.
     """
-    step = MOON_STEP_MIN / (60 * 24)  # in JD units
-    best_jd = None
-    best_diff = float("inf")
+    # The window is shifted back 30 seconds so an aspect lands on the day its rounded time shows.
+    start = datetime.datetime(date.year, date.month, date.day, tzinfo=PST)
+    end = datetime.datetime.combine(date + datetime.timedelta(days=1), datetime.time(), tzinfo=PST)
+    half_minute = datetime.timedelta(seconds=30)
+    jd0, jd1 = dt_to_jd(start - half_minute), dt_to_jd(end - half_minute)
+    steps = max(1, round((jd1 - jd0) * 1440 / MOON_SCAN_STEP_MIN))
+    grid = [jd0 + (jd1 - jd0) * k / steps for k in range(steps + 1)]
+    moon = [get_longitude(jd, swe.MOON) for jd in grid]
 
-    jd = jd_start
-    while jd <= jd_end:
-        moon_lon = get_longitude(jd, swe.MOON)
-        other_lon = get_longitude(jd, other_planet_id)
-        dist = angular_distance(moon_lon, other_lon)
-        diff = abs(dist - target_angle)
-        if diff < best_diff:
-            best_diff = diff
-            best_jd = jd
-        jd += step
-
-    if best_jd is None or best_diff > ORB:
-        return None
-
-    # Convert JD → UTC → PST/PDT
-    y, m, d, h = swe.revjul(best_jd)
-    hour = int(h)
-    minute = int((h - hour) * 60)
-    utc_dt = datetime.datetime(y, m, d, hour, minute, tzinfo=UTC)
-    return utc_dt.astimezone(PST)
+    hits = []
+    for other, other_id in PLANETS.items():
+        if other == "Moon":
+            continue
+        lons = [get_longitude(jd, other_id) for jd in grid]
+        for aspect, angle in ASPECTS.items():
+            for target in {angle, (360 - angle) % 360}:  # waxing and waning sides
+                gaps = [wrap180(m - o - target) for m, o in zip(moon, lons)]
+                for k in range(steps):
+                    a, b = gaps[k], gaps[k + 1]
+                    # a sign change, not the ±180° wraparound on the far side of the circle
+                    if (a >= 0) != (b >= 0) and abs(b - a) < 90:
+                        jd = refine_moon_root(other_id, target, grid[k], grid[k + 1])
+                        if jd0 <= jd < jd1:
+                            hits.append((other, aspect, jd_to_local_minute(jd)))
+    return sorted(hits, key=lambda h: h[2])
 
 # ── Main computation ───────────────────────────────────────────────────────────
 
 def compute_aspects(month: int, year: int) -> list[dict]:
     """
     Return a list of aspect dicts for every day of the given month/year.
-    Moon aspects include exact PST/PDT time; others just the date.
+    Slow bodies: listed when within ORB at noon Pacific, with the noon orb.
+    Moon: every aspect that perfects during the day, with its PST/PDT time and an orb of 0.
     """
     rows = []
     planet_names = list(PLANETS.keys())
@@ -138,45 +163,43 @@ def compute_aspects(month: int, year: int) -> list[dict]:
         noon_pst = datetime.datetime(year, month, day, 12, 0, tzinfo=PST)
         jd_noon = dt_to_jd(noon_pst)
 
-        # Day boundaries in JD (for Moon search)
-        day_start_pst = datetime.datetime(year, month, day, 0, 0, tzinfo=PST)
-        day_end_pst   = datetime.datetime(year, month, day, 23, 59, tzinfo=PST)
-        jd_day_start  = dt_to_jd(day_start_pst)
-        jd_day_end    = dt_to_jd(day_end_pst)
-
         # Pre-fetch all longitudes at noon
         lons = {name: get_longitude(jd_noon, pid) for name, pid in PLANETS.items()}
+
+        # Every Moon aspect that perfects today, keyed by the other body
+        moon_hits = {}
+        for other, asp, when in moon_aspects_on(date):
+            moon_hits.setdefault(other, []).append((asp, when))
 
         # Check every planet pair
         for i, p1 in enumerate(planet_names):
             for p2 in planet_names[i + 1:]:
+                if p1 == "Moon" or p2 == "Moon":
+                    other = p2 if p1 == "Moon" else p1
+                    for asp, when in moon_hits.get(other, []):
+                        tz_label = "PDT" if when.dst() else "PST"
+                        rows.append({
+                            "Date":        date.strftime("%Y-%m-%d"),
+                            "Planet 1":    p1,
+                            "Aspect":      asp,
+                            "Planet 2":    p2,
+                            "Orb (°)":     0.0,  # listed at the moment it perfects
+                            "Exact Time":  when.strftime(f"%I:%M %p {tz_label}"),
+                        })
+                    continue
+
                 dist = angular_distance(lons[p1], lons[p2])
                 asp = aspect_name(dist)
                 if asp is None:
                     continue
-
-                orb_val = round(abs(dist - ASPECTS[asp]), 3)
-                exact_time_str = ""
-
-                # For Moon aspects, find the exact time within the day
-                if p1 == "Moon" or p2 == "Moon":
-                    other = p2 if p1 == "Moon" else p1
-                    other_id = PLANETS[other]
-                    exact_dt = find_moon_exact_time(
-                        jd_day_start, jd_day_end,
-                        other_id, ASPECTS[asp]
-                    )
-                    if exact_dt:
-                        tz_label = "PDT" if exact_dt.dst() else "PST"
-                        exact_time_str = exact_dt.strftime(f"%I:%M %p {tz_label}")
 
                 rows.append({
                     "Date":        date.strftime("%Y-%m-%d"),
                     "Planet 1":    p1,
                     "Aspect":      asp,
                     "Planet 2":    p2,
-                    "Orb (°)":     orb_val,
-                    "Exact Time":  exact_time_str,
+                    "Orb (°)":     round(abs(dist - ASPECTS[asp]), 3),
+                    "Exact Time":  "",
                 })
 
     return rows

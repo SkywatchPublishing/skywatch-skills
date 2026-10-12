@@ -22,7 +22,7 @@ def test_targets_include_angles_only_when_time_known():
 
 
 def test_hits_for_one_day_against_known_sky():
-    # Mars sextile Pluto was exact to 0.002 at noon Pacific on 2026-04-16 (astrology-ephemeris example row 30).
+    # Mars sextile Pluto was exact to 0.002 at noon Pacific on 2026-04-16 (astrology-ephemeris April 2026 example).
     # Treat natal Pluto as a fixed point at the transiting Pluto longitude of that moment and look for Mars.
     chart = {"meta": {"time_unknown": True, "timezone": "America/Los_Angeles"}, "bodies": {}, "angles": None}
     sky = tr.sky_at(dt.date(2026, 4, 16), "America/Los_Angeles", ["Mars", "Pluto"])
