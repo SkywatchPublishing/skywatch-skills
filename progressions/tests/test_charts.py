@@ -2,10 +2,14 @@ import datetime as dt
 import json
 from pathlib import Path
 
+from zoneinfo import ZoneInfo
+
 import pytest
+import swisseph as swe
 import progressions as pg
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "natal-chart" / "examples" / "chart.json"
+NY = ("--geonameid", "5128581")
 
 
 @pytest.fixture
@@ -44,6 +48,18 @@ def test_directed_chart_moves_everything_by_the_arc(natal):
     for k in ("ascendant", "mc"):
         assert abs(pg.wrapped(d["angles"][k] - (natal["angles"][k] + arc))) < 1e-3
     assert all(a["applying"] is None for a in d["aspects"])
+    # A directed position has no daily motion (CONTRACT.md: speed is null on directed charts).
+    assert all(b["speed"] is None and b["retrograde"] is False for b in d["bodies"].values())
+
+
+def test_directed_whole_sign_cusps_stay_on_sign_boundaries(cast):
+    w = cast("--date", "1990-06-15", "--time", "12:00", *NY, "--houses", "whole_sign")
+    d = pg.directed_chart(w, at(w, 2027, 6, 15))
+    start = d["angles"]["ascendant"] // 30 * 30
+    assert d["houses"]["system"] == "whole_sign"
+    assert d["houses"]["cusps"] == [(start + 30 * i) % 360 for i in range(12)]
+    for b in d["bodies"].values():
+        assert b["house"] == pg.house_of(b["longitude"], d["houses"]["cusps"])
 
 
 def test_solar_arc_angles_make_progressed_mc_equal_directed_mc(natal):
@@ -66,6 +82,57 @@ def test_untimed_natal(natal):
         assert chart["angles"] is None and chart["houses"] is None
         assert chart["meta"]["progression"]["angles_method"] is None
         assert all(b["house"] is None for b in chart["bodies"].values())
+
+
+def edge_moon(natal, hour, minute, tjd):
+    """The progressed Moon for a birth at hour:minute local on the natal birth date."""
+    meta = natal["meta"]
+    local = dt.datetime.combine(dt.date.fromisoformat(meta["datetime_local"][:10]), dt.time(hour, minute),
+                                tzinfo=ZoneInfo(meta["timezone"]))
+    u = local.astimezone(dt.timezone.utc)
+    e = swe.julday(u.year, u.month, u.day, u.hour + u.minute / 60)
+    return swe.calc_ut(e + (tjd - e) / pg.YEAR, swe.MOON, swe.FLG_SWIEPH)[0][0]
+
+
+def test_untimed_moon_range_moves_with_the_chart(cast):
+    u = cast("--date", "1990-06-15", *NY)
+    t = at(u, 2027, 6, 15)
+    natal_range = u["meta"]["moon_range"]
+    p = pg.progressed_chart(u, t)["meta"]["moon_range"]
+    assert p["start"] == pytest.approx(edge_moon(u, 0, 0, t), abs=1e-4)
+    assert p["end"] == pytest.approx(edge_moon(u, 23, 59, t), abs=1e-4)
+    d = pg.directed_chart(u, t)
+    arc = d["meta"]["progression"]["solar_arc"]
+    for k in ("start", "end"):
+        assert abs(pg.wrapped(d["meta"]["moon_range"][k] - (natal_range[k] + arc))) < 1e-3
+    assert pg.progressed_chart(u, u["meta"]["julian_day_ut"])["meta"]["moon_range"]["start"] == \
+        pytest.approx(natal_range["start"], abs=0.05)
+
+
+def test_timed_charts_keep_a_null_moon_range(natal):
+    t = at(natal, 2027, 6, 15)
+    assert pg.progressed_chart(natal, t)["meta"]["moon_range"] is None
+    assert pg.directed_chart(natal, t)["meta"]["moon_range"] is None
+
+
+def test_target_before_the_birth_moment_is_the_birth_moment(cast):
+    late = cast("--date", "1990-06-15", "--time", "18:30", *NY)
+    t = at(late, 1990, 6, 15)                     # local noon, six and a half hours before birth
+    assert t < late["meta"]["julian_day_ut"]
+    for chart in (pg.progressed_chart(late, t), pg.directed_chart(late, t)):
+        prog = chart["meta"]["progression"]
+        assert prog["age_years"] == 0.0 and prog["solar_arc"] == 0.0 and prog["target_date"] == "1990-06-15"
+        for n, b in late["bodies"].items():
+            assert abs(pg.wrapped(chart["bodies"][n]["longitude"] - b["longitude"])) < 1e-3
+        assert abs(pg.wrapped(chart["angles"]["ascendant"] - late["angles"]["ascendant"])) < 1e-3
+
+
+def test_house_system_requested_is_carried_through(natal):
+    natal["meta"]["house_system_requested"] = "koch"
+    t = at(natal, 2027, 6, 15)
+    for chart in (pg.progressed_chart(natal, t), pg.directed_chart(natal, t)):
+        assert chart["meta"]["house_system_requested"] == "koch"
+        assert chart["meta"]["house_system"] == chart["houses"]["system"] == "placidus"
 
 
 def test_missing_chiron_stays_missing(natal):

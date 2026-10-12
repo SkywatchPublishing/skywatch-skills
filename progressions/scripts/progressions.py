@@ -45,19 +45,26 @@ HOUSE_CODES = {"placidus": b"P", "koch": b"K", "equal": b"E", "porphyry": b"O", 
 
 
 def wrapped(x: float) -> float:
-    """x reduced to (-180, 180]."""
+    """x reduced to [-180, 180): the signed difference of two longitudes."""
     return ((x + 180.0) % 360.0) - 180.0
+
+
+def local_jd(date: dt.date, time: dt.time, tz: str) -> float:
+    """Julian day (UT) of a local wall-clock time on `date` in `tz`."""
+    u = dt.datetime.combine(date, time, tzinfo=ZoneInfo(tz)).astimezone(dt.timezone.utc)
+    return swe.julday(u.year, u.month, u.day, u.hour + u.minute / 60 + u.second / 3600)
 
 
 def target_jd(date: dt.date, tz: str) -> float:
     """Julian day (UT) of local noon on `date` in `tz`."""
-    u = dt.datetime.combine(date, dt.time(12), tzinfo=ZoneInfo(tz)).astimezone(dt.timezone.utc)
-    return swe.julday(u.year, u.month, u.day, u.hour + u.minute / 60 + u.second / 3600)
+    return local_jd(date, dt.time(12), tz)
 
 
 def jd_to_local_date(jd: float, tz: str) -> dt.date:
+    """Local date of a Julian day (UT). The time is rounded to the second first, so float error in revjul's
+    hour cannot push an exact local midnight back into the previous day."""
     y, m, d, h = swe.revjul(jd)
-    u = dt.datetime(y, m, d, tzinfo=dt.timezone.utc) + dt.timedelta(hours=h)
+    u = dt.datetime(y, m, d, tzinfo=dt.timezone.utc) + dt.timedelta(seconds=round(h * 3600))
     return u.astimezone(ZoneInfo(tz)).date()
 
 
@@ -91,9 +98,12 @@ def sun_lon(jd: float, zodiac: str) -> float:
     return swe.calc_ut(jd, swe.SUN, _flags(zodiac))[0][0]
 
 
-def solar_arc(birth_jd: float, tjd: float, zodiac: str = "tropical") -> float:
-    """True solar arc: progressed Sun minus natal Sun, in [0, 360)."""
-    return (sun_lon(progressed_jd(birth_jd, tjd), zodiac) - sun_lon(birth_jd, zodiac)) % 360
+def solar_arc(birth_jd: float, tjd: float, zodiac: str = "tropical", natal_sun: float | None = None) -> float:
+    """True solar arc: progressed Sun minus natal Sun, in [0, 360). Callers that need many arcs pass
+    `natal_sun`, sun_lon(birth_jd, zodiac), so it is not recomputed each time."""
+    if natal_sun is None:
+        natal_sun = sun_lon(birth_jd, zodiac)
+    return (sun_lon(progressed_jd(birth_jd, tjd), zodiac) - natal_sun) % 360
 
 
 def obliquity(jd: float) -> float:
@@ -101,7 +111,12 @@ def obliquity(jd: float) -> float:
 
 
 def ayanamsa(jd: float, zodiac: str) -> float:
-    return swe.get_ayanamsa_ut(jd) if str(zodiac).startswith("sidereal") else 0.0
+    """Lahiri ayanamsa with nutation, the value calc_ut and houses_ex subtract under FLG_SIDEREAL, so it
+    matches natal-chart's sidereal output (get_ayanamsa_ut is the mean value, up to ~0.005° off); 0 for tropical."""
+    if not str(zodiac).startswith("sidereal"):
+        return 0.0
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    return swe.get_ayanamsa_ex_ut(jd, swe.FLG_SWIEPH)[1]
 
 
 def armc_from_mc(mc: float, eps: float) -> float:
@@ -109,40 +124,61 @@ def armc_from_mc(mc: float, eps: float) -> float:
     return math.degrees(math.atan2(math.sin(m) * math.cos(e), math.cos(m))) % 360.0
 
 
-def houses_from_armc(armc: float, latitude: float, eps: float, system: str) -> dict:
-    """Cusps and angles for an ARMC at a latitude; whole-sign fallback at polar latitudes."""
+def whole_sign_cusps(ascendant: float) -> list[float]:
+    """The 12 sign boundaries, starting with the sign the Ascendant is in."""
+    start = ascendant // 30 * 30
+    return [(start + 30 * i) % 360 for i in range(12)]
+
+
+def houses_from_armc(armc: float, latitude: float, eps: float, system: str, shift: float = 0.0) -> dict:
+    """Cusps and angles for an ARMC at a latitude; whole-sign fallback at polar latitudes.
+
+    houses_armc is tropical: a sidereal chart passes its ayanamsa as `shift`, subtracted from the angles and
+    cusps. Whole-sign cusps are then rebuilt from the shifted Ascendant's sign, since shifted tropical sign
+    boundaries are not sidereal ones.
+    """
     flags = []
     try:
         cusps, ascmc = swe.houses_armc(armc, latitude, eps, HOUSE_CODES[system])
     except swe.Error:
         cusps, ascmc = swe.houses_armc(armc, latitude, eps, HOUSE_CODES["whole_sign"])
         system, flags = "whole_sign", ["polar_fallback_whole_sign"]
-    asc, mc = ascmc[0] % 360, ascmc[1] % 360
-    return {"system": system, "cusps": [c % 360 for c in cusps[:12]],
+    asc, mc = (ascmc[0] - shift) % 360, (ascmc[1] - shift) % 360
+    cusps = whole_sign_cusps(asc) if system == "whole_sign" else [(c - shift) % 360 for c in cusps[:12]]
+    return {"system": system, "cusps": cusps,
             "angles": {"ascendant": asc, "mc": mc, "descendant": (asc + 180) % 360, "ic": (mc + 180) % 360},
             "flags": flags}
+
+
+def house_mover(natal: dict, method: str):
+    """A function tjd -> progressed houses (see moved_houses), with the natal constants worked out once."""
+    meta = natal["meta"]
+    zodiac, birth_jd = meta["zodiac"], meta["julian_day_ut"]
+    lat, system = meta["location"]["latitude"], natal["houses"]["system"]
+    eps = obliquity(birth_jd)
+    natal_mc_trop = (natal["angles"]["mc"] + ayanamsa(birth_jd, zodiac)) % 360
+    natal_armc = armc_from_mc(natal_mc_trop, eps)
+    natal_sun = sun_lon(birth_jd, "tropical")
+
+    def at(tjd: float) -> dict:
+        if method == "naibod":
+            armc = (natal_armc + NAIBOD * (tjd - birth_jd) / YEAR) % 360
+        else:
+            armc = armc_from_mc((natal_mc_trop + solar_arc(birth_jd, tjd, "tropical", natal_sun)) % 360, eps)
+        return houses_from_armc(armc, lat, eps, system, ayanamsa(progressed_jd(birth_jd, tjd), zodiac))
+    return at
 
 
 def moved_houses(natal: dict, tjd: float, method: str) -> dict:
     """Progressed houses at the birth latitude, in the natal zodiac.
 
     'solar-arc': MC = natal MC + true solar arc. 'naibod': natal ARMC + 0.9856473° per year.
-    houses_armc has no sidereal mode, so work in tropical and shift back by the birth ayanamsa.
+    houses_armc has no sidereal mode, so the natal MC goes to tropical with the birth ayanamsa, the houses
+    are worked out in tropical (with the tropical arc), and they come back to sidereal with the ayanamsa at
+    the progressed instant, the moment the progressed bodies are computed for. A sidereal solar-arc MC is
+    therefore natal MC + sidereal arc, as for the bodies.
     """
-    meta = natal["meta"]
-    zodiac, birth_jd = meta["zodiac"], meta["julian_day_ut"]
-    lat = meta["location"]["latitude"]
-    eps = obliquity(birth_jd)
-    shift = ayanamsa(birth_jd, zodiac)
-    natal_mc_trop = (natal["angles"]["mc"] + shift) % 360
-    if method == "naibod":
-        armc = (armc_from_mc(natal_mc_trop, eps) + NAIBOD * (tjd - birth_jd) / YEAR) % 360
-    else:
-        armc = armc_from_mc((natal_mc_trop + solar_arc(birth_jd, tjd, zodiac)) % 360, eps)
-    h = houses_from_armc(armc, lat, eps, natal["houses"]["system"])
-    h["cusps"] = [(c - shift) % 360 for c in h["cusps"]]
-    h["angles"] = {k: (v - shift) % 360 for k, v in h["angles"].items()}
-    return h
+    return house_mover(natal, method)(tjd)
 
 
 SIGNS = ["Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
@@ -224,11 +260,28 @@ def _body(lon, speed, lat, cusps):
             "house": house_of(lon, cusps) if cusps else None, "latitude": round(lat, 4)}
 
 
+def birth_date(natal: dict) -> dt.date:
+    meta = natal["meta"]
+    return jd_to_local_date(meta["julian_day_ut"], meta["timezone"])
+
+
+def day_edges(natal: dict) -> tuple[float, float]:
+    """Julian days of 00:00 and 23:59 local on the birth date: the span natal-chart's moon_range covers."""
+    day, tz = birth_date(natal), natal["meta"]["timezone"]
+    return local_jd(day, dt.time(0, 0), tz), local_jd(day, dt.time(23, 59), tz)
+
+
+def _moon_range(start: float, end: float) -> dict:
+    return {"start": round(start % 360, 4), "end": round(end % 360, 4)}
+
+
 def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd: float, arc: float,
-              angles_method: str | None) -> dict:
-    """raw: name -> (longitude, speed or None, latitude). houses: moved houses or None (untimed)."""
+              angles_method: str | None, moon_range: dict | None) -> dict:
+    """raw: name -> (longitude, speed or None, latitude). houses: moved houses or None (untimed).
+    The natal meta is copied whole (keeping keys such as house_system_requested); the moving parts are replaced."""
     import copy
     meta = copy.deepcopy(natal["meta"])
+    meta["moon_range"] = moon_range
     cusps = houses["cusps"] if houses else None
     bodies = {n: _body(lon, sp, lat, cusps) for n, (lon, sp, lat) in raw.items()}
     points = {n: {"longitude": b["longitude"], "speed": b["speed"]} for n, b in bodies.items()}
@@ -250,27 +303,41 @@ def _assemble(natal: dict, raw: dict, houses: dict | None, chart_type: str, tjd:
 
 
 def progressed_chart(natal: dict, tjd: float, angles_method: str = "solar-arc") -> dict:
-    """Secondary progressed chart for target Julian day `tjd`."""
+    """Secondary progressed chart for target Julian day `tjd` (a target before the birth moment is the birth)."""
     meta = natal["meta"]
     bj = meta["julian_day_ut"]
+    tjd = max(tjd, bj)
     pos = body_positions(progressed_jd(bj, tjd), meta["zodiac"], meta.get("node", "true"))
     raw = {n: (p["longitude"], p["speed"], p["latitude"]) for n, p in pos.items() if n in natal["bodies"]}
     houses = moved_houses(natal, tjd, angles_method) if natal.get("angles") else None
+    moon = None
+    if meta.get("moon_range") is not None:
+        # Untimed: the progressed Moon for a birth at each edge of the birth day, each progressed by its own age.
+        moon = _moon_range(*(swe.calc_ut(progressed_jd(e, tjd), swe.MOON, _flags(meta["zodiac"]))[0][0]
+                             for e in day_edges(natal)))
     return _assemble(natal, raw, houses, "secondary_progressed", tjd, solar_arc(bj, tjd, meta["zodiac"]),
-                     angles_method if houses else None)
+                     angles_method if houses else None, moon)
 
 
 def directed_chart(natal: dict, tjd: float) -> dict:
-    """Solar arc directed chart: every body, angle and cusp moves by the true solar arc."""
+    """Solar arc directed chart: every body, angle and cusp moves by the true solar arc (a target before the
+    birth moment is the birth). Whole-sign cusps stay on sign boundaries, from the directed Ascendant's sign."""
     meta = natal["meta"]
-    arc = solar_arc(meta["julian_day_ut"], tjd, meta["zodiac"])
+    bj = meta["julian_day_ut"]
+    tjd = max(tjd, bj)
+    arc = solar_arc(bj, tjd, meta["zodiac"])
     raw = {n: ((b["longitude"] + arc) % 360, None, b.get("latitude", 0.0)) for n, b in natal["bodies"].items()}
     houses = None
     if natal.get("angles"):
-        houses = {"system": natal["houses"]["system"],
-                  "cusps": [(c + arc) % 360 for c in natal["houses"]["cusps"]],
-                  "angles": {k: (v + arc) % 360 for k, v in natal["angles"].items()}, "flags": []}
-    return _assemble(natal, raw, houses, "solar_arc_directed", tjd, arc, None)
+        angles = {k: (v + arc) % 360 for k, v in natal["angles"].items()}
+        system = natal["houses"]["system"]
+        cusps = (whole_sign_cusps(angles["ascendant"]) if system == "whole_sign"
+                 else [(c + arc) % 360 for c in natal["houses"]["cusps"]])
+        houses = {"system": system, "cusps": cusps, "angles": angles, "flags": []}
+    moon = None
+    if meta.get("moon_range") is not None:
+        moon = _moon_range(meta["moon_range"]["start"] + arc, meta["moon_range"]["end"] + arc)
+    return _assemble(natal, raw, houses, "solar_arc_directed", tjd, arc, None, moon)
 
 
 ORB = 1.0            # timeline window, degrees either side of exact
@@ -468,7 +535,6 @@ def load_chart(path: Path) -> dict:
 
 # --- command line -----------------------------------------------------------------------------
 
-DERIVED_TYPES = ("secondary_progressed", "solar_arc_directed")
 MAX_YEARS = 120
 TIMELINE_HEADER = ["Technique", "Event", "Moving", "Aspect", "Target", "Exact", "Orb from", "Orb to", "Detail",
                    "Uncertain"]
@@ -477,6 +543,15 @@ UNTIMED_NOTE = ("Note: the birth time is unknown, so every secondary event, and 
                 "Moon, may fall up to about six months either side of its date (a 12-hour error in the birth moment "
                 "is half a progressed day, which is half a year); those rows are marked Uncertain, and angle and "
                 "house events are left out")
+
+
+def derived_type(meta: dict) -> str | None:
+    """What a chart that is not natal is (its chart_type), or None for a natal chart. A missing chart_type
+    means natal (older files); a chart carrying meta.progression is progressed whatever it says."""
+    chart_type = meta.get("chart_type") or "natal"
+    if chart_type == "natal" and "progression" in meta:
+        return "progressed"
+    return None if chart_type == "natal" else chart_type
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -492,11 +567,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", type=Path, help="output path (defaults in the description above)")
     p.add_argument("--grid", type=Path, help="Markdown aspect grid for a chart (default: <out stem>_aspects.md)")
     return p
-
-
-def birth_date(natal: dict) -> dt.date:
-    meta = natal["meta"]
-    return jd_to_local_date(meta["julian_day_ut"], meta["timezone"])
 
 
 def write_timeline(rows: list[dict], path: Path) -> None:
@@ -564,7 +634,7 @@ def main(argv=None) -> int:
             parser.error("--method and --grid apply to --date charts; the timeline lists both techniques")
         if args.end < args.start:
             parser.error(f"--end {args.end} is before --start {args.start}")
-        out = args.out or Path("progressions_timeline.csv")
+        out, grid_path = args.out or Path("progressions_timeline.csv"), None
     else:
         if args.start or args.end:
             parser.error("--start and --end apply to --timeline; a chart takes --date")
@@ -577,6 +647,10 @@ def main(argv=None) -> int:
         if grid_path.resolve() == out.resolve():
             print(f"--grid and --out are the same file ({out}); choose a different --grid", file=sys.stderr)
             return 1
+    for flag, path in (("--out", out), ("--grid", grid_path)):
+        if path is not None and path.resolve() == args.chart.resolve():
+            print(f"{flag} {path} is the input chart; choose a different {flag}", file=sys.stderr)
+            return 1
 
     try:
         natal = load_chart(args.chart)
@@ -584,13 +658,15 @@ def main(argv=None) -> int:
         print(exc, file=sys.stderr)
         return 1
     meta = natal["meta"]
-    if any(meta.get(k) is None for k in ("julian_day_ut", "datetime_utc", "timezone")):
-        print(f"progressions: this chart has no real moment (chart_type {meta.get('chart_type', 'natal')}); "
-              "progressions need a natal chart", file=sys.stderr)
-        return 1
-    if meta.get("chart_type") in DERIVED_TYPES:
-        print("progressions: this is already a progressed or directed chart; progress the natal chart instead",
+    kind = derived_type(meta)
+    if kind:
+        # Returns, composites, Davison and progressed charts all fail here, whether or not they carry a moment.
+        print(f"progressions: this is a {kind} chart, not a natal one; progress the natal chart instead",
               file=sys.stderr)
+        return 1
+    if any(meta.get(k) is None for k in ("julian_day_ut", "datetime_utc", "timezone")):
+        print("progressions: this natal chart has no real moment (julian_day_ut, datetime_utc or timezone is "
+              "null); recast it with natal-chart", file=sys.stderr)
         return 1
 
     try:

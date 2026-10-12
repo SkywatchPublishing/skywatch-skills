@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "progressions" / "scripts" / "progressions.py"
 EXAMPLE = ROOT / "natal-chart" / "examples" / "chart.json"
 COMPOSITE = ROOT / "composite" / "examples" / "composite.json"
+DAVISON = ROOT / "composite" / "examples" / "davison.json"
+SOLAR_RETURN = ROOT / "returns" / "examples" / "sun_return_2027-06-15.json"
 HEADER = "Technique,Event,Moving,Aspect,Target,Exact,Orb from,Orb to,Detail,Uncertain"
 
 
@@ -151,12 +153,19 @@ def test_usage_error_from_main_exits_1(capsys):
     assert "--angles" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("mode", [["--date", "2027-06-15"], ["--timeline", "--start", "2027-01-01", "--end", "2027-12-31"]])
-def test_midpoint_composite_is_refused(tmp_path, mode):
-    proc = run(COMPOSITE, *mode, cwd=tmp_path)
+MODES = [["--date", "2027-06-15"], ["--timeline", "--start", "2027-01-01", "--end", "2027-12-31"]]
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("path, chart_type", [
+    (COMPOSITE, "composite"), (DAVISON, "davison"), (SOLAR_RETURN, "solar_return"),
+])
+def test_derived_charts_are_refused(tmp_path, mode, path, chart_type):
+    assert json.loads(path.read_text())["meta"]["chart_type"] == chart_type
+    proc = run(path, *mode, cwd=tmp_path)
     assert proc.returncode == 1
     assert len(proc.stderr.splitlines()) == 1
-    assert "no real moment" in proc.stderr
+    assert f"this is a {chart_type} chart" in proc.stderr
     assert not list(tmp_path.iterdir())
 
 
@@ -178,8 +187,42 @@ def test_already_progressed_chart_is_refused(tmp_path, method):
         proc = run("p.json", *mode, cwd=tmp_path)
         assert proc.returncode == 1
         assert len(proc.stderr.splitlines()) == 1
-        assert "progressed or directed" in proc.stderr
+        kind = "solar_arc_directed" if method == "solar-arc" else "secondary_progressed"
+        assert f"this is a {kind} chart" in proc.stderr
     assert sorted(p.name for p in tmp_path.iterdir()) == ["p.json", "p_aspects.md"]
+
+
+def test_chart_carrying_a_progression_is_refused(tmp_path):
+    path = write_chart(tmp_path, "c.json", lambda c: c["meta"].update(progression={"target_date": "2027-06-15"}))
+    proc = run(path, "--date", "2027-06-15", cwd=tmp_path)
+    assert proc.returncode == 1
+    assert len(proc.stderr.splitlines()) == 1 and "progress" in proc.stderr
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["c.json"]
+
+
+@pytest.mark.parametrize("args", [
+    ["--date", "2027-06-15", "--out", "chart.json"],
+    ["--date", "2027-06-15", "--out", "p.json", "--grid", "./chart.json"],
+    ["--timeline", "--start", "2027-01-01", "--end", "2027-12-31", "--out", "chart.json"],
+])
+def test_output_over_the_input_chart_exits_1(tmp_path, args):
+    path = write_chart(tmp_path, "chart.json", lambda c: None)
+    before = path.read_text()
+    proc = run("chart.json", *args, cwd=tmp_path)
+    assert proc.returncode == 1
+    assert len(proc.stderr.splitlines()) == 1 and "input chart" in proc.stderr
+    assert path.read_text() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["chart.json"]
+
+
+def test_birth_date_with_an_afternoon_birth_is_age_zero(tmp_path, cast):
+    path = tmp_path / "late.json"
+    path.write_text(json.dumps(cast("--date", "1990-06-15", "--time", "18:30", "--geonameid", "5128581")))
+    for method in ("secondary", "solar-arc"):
+        proc = run(path, "--date", "1990-06-15", "--method", method, "--out", f"{method}.json", cwd=tmp_path)
+        assert proc.returncode == 0, proc.stderr
+        prog = json.loads((tmp_path / f"{method}.json").read_text(encoding="utf-8"))["meta"]["progression"]
+        assert prog["age_years"] == 0.0 and prog["solar_arc"] == 0.0
 
 
 @pytest.mark.parametrize("content", [None, "{not json"])
