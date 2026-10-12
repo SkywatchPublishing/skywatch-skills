@@ -421,6 +421,13 @@ def cast_davison(natal_script: Path, a: dict, b: dict, out: Path, grid: Path | N
 
 BIRTH_MISSING = ("composite needs the natal-chart skill installed beside it to accept raw birth data "
                  "or a --city/--geonameid reference; pass chart files and --lat/--lon instead")
+PROGRESSED_REFUSED = "composite: progressed and directed charts can't be composited; use the natal charts"
+
+
+def is_progressed(chart: dict) -> bool:
+    """A progressions chart: its bodies are read for a target date while its birth timestamps are natal."""
+    meta = chart["meta"]
+    return meta.get("chart_type") in ("secondary_progressed", "solar_arc_directed") or "progression" in meta
 
 
 class Parser(argparse.ArgumentParser):
@@ -540,6 +547,8 @@ def main(argv=None) -> int:
                     charts[side] = cast_chart(natal_script, birth, Path(tmp) / f"{side}.json")
                 else:
                     charts[side] = load_chart(getattr(args, side))
+                    if is_progressed(charts[side]):
+                        raise ValueError(PROGRESSED_REFUSED)
             a, b = charts["a"], charts["b"]
             house_system = args.houses or requested_house_system(a["meta"])
             if args.method == "davison":
