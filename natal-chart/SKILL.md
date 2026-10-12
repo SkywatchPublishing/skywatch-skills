@@ -73,7 +73,7 @@ This downloads three Swiss Ephemeris data files (about 2 MB) into `ephe/` beside
 python scripts/natal_chart.py --name "Ada" --date 1990-06-15 --time 14:30 --city "London, GB"
 ```
 
-Location is given one of three ways; pass exactly one of `--city`, `--geonameid`, or `--lat/--lon`:
+Location is given one of three ways; pass exactly one of `--city`, `--geonameid`, or `--lat/--lon`. A mix (`--city` with `--geonameid`, or either with coordinates) is refused with exit `1`, and so is `--tz` without `--lat/--lon`: `--city` and `--geonameid` take their timezone from the city table.
 
 | Option | Use when |
 |---|---|
@@ -170,7 +170,7 @@ Keep `chart.json` where other skills can find it: `transits-to-natal` and `synas
 | Aspects | Conjunction, opposition, square, trine 8°; sextile 6°; quincunx 3° | Edit the config block at the top of `scripts/aspects.py` |
 | Luminary bonus | Sun and Moon orbs +2° | `LUMINARY_BONUS` in `scripts/aspects.py` |
 | Location | GeoNames cities15000 table in `data/cities.csv` | `--lat/--lon` bypasses it |
-| Timezone | From the city table, or `timezonefinder` for coordinates; historical offsets and DST from `zoneinfo` | `--tz` override |
+| Timezone | From the city table, or `timezonefinder` for coordinates; historical offsets and DST from `zoneinfo` | `--tz` override, with `--lat/--lon` only |
 
 - Applying or separating is decided from the two daily speeds: a pair is applying when the separation is closing on the exact angle.
 - Above roughly 66° latitude Placidus and Koch cannot compute; the script falls back to Whole Sign and sets `polar_fallback_whole_sign`.
