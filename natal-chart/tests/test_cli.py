@@ -3,6 +3,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "natal_chart.py"
 
 
@@ -78,6 +80,33 @@ def test_cli_geonameid_combined_with_coordinates_exits_1(tmp_path):
     r = run("--name", "T", "--date", "1990-06-15", "--geonameid", "2643743", "--lat", "51.5", "--lon", "-0.13", cwd=tmp_path)
     assert r.returncode == 1
     assert "exactly one" in r.stderr
+
+
+def test_cli_city_combined_with_geonameid_exits_1(tmp_path):
+    # Paris, TX by name and Paris, France by id: neither may silently win.
+    r = run("--name", "T", "--date", "1990-06-15", "--city", "Paris, TX", "--geonameid", "2988507", cwd=tmp_path)
+    assert r.returncode == 1
+    assert "Pass either --city or --geonameid, not both" in r.stderr
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("place", [("--city", "London, GB"), ("--geonameid", "2643743")])
+def test_cli_tz_with_named_place_exits_1(tmp_path, place):
+    r = run("--name", "T", "--date", "1990-06-15", *place, "--tz", "America/New_York", cwd=tmp_path)
+    assert r.returncode == 1
+    assert "--tz only applies with --lat/--lon" in r.stderr
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("place, timezone", [
+    (("--city", "London, GB"), "Europe/London"),
+    (("--geonameid", "2643743"), "Europe/London"),
+    (("--lat", "51.5", "--lon", "-0.13", "--tz", "America/New_York"), "America/New_York"),
+])
+def test_cli_each_place_form_alone_is_accepted(tmp_path, place, timezone):
+    r = run("--name", "T", "--date", "1990-06-15", "--time", "12:00", *place, "--out", "c.json", cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert json.loads((tmp_path / "c.json").read_text())["meta"]["timezone"] == timezone
 
 
 def test_cli_fold_disambiguates_repeated_hour(tmp_path):

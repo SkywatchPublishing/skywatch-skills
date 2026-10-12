@@ -62,7 +62,7 @@ python scripts/natal_chart.py --name "Ada" --date 1990-06-15 --geonameid 2643743
 python scripts/natal_chart.py --name "Ada" --date 1990-06-15 --time 06:00 --lat 51.5 --lon -0.13
 ```
 
-Options: `--houses placidus|koch|equal|porphyry|whole_sign`, `--zodiac tropical|sidereal`, `--node true|mean`, `--out chart.json`, `--grid aspects.md`. Exit code `2` means the city name matched several places; the candidates are printed as a table and the script should be re-run with `--geonameid`. Candidate labels show the raw GeoNames admin1 code, so Paris in France appears as "Paris, 11, FR".
+Give the place as exactly one of `--city`, `--geonameid` or `--lat --lon [--tz]` (`--city` with `--geonameid`, either with coordinates, or `--tz` without coordinates is refused with exit `1`). Options: `--houses placidus|koch|equal|porphyry|whole_sign`, `--zodiac tropical|sidereal`, `--node true|mean`, `--out chart.json`, `--grid aspects.md`. Exit code `2` means the city name matched several places; the candidates are printed as a table and the script should be re-run with `--geonameid`. Candidate labels show the raw GeoNames admin1 code, so Paris in France appears as "Paris, 11, FR".
 
 Requires Python 3.11 or newer.
 
