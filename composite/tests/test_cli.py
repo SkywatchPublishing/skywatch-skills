@@ -192,6 +192,39 @@ def test_untimed_note_printed_once(tmp_path):
     assert proc.stdout.count("Note: time_unknown") == 1
 
 
+def _notes_after_wrote(stdout: str) -> list[str]:
+    lines = stdout.splitlines()
+    wrote = next(i for i, line in enumerate(lines) if line.startswith("Wrote "))
+    return [line for line in lines[wrote + 1:] if line.startswith("Note:")]
+
+
+def test_polar_side_note_is_labelled_and_composite_fallback_still_printed(tmp_path):
+    # A is cast at 78N, so natal-chart falls back to whole-sign for A; the composite's houses are
+    # then derived at A's place in Placidus and fall back too. Both notes must reach the user.
+    polar = "--name Polar --date 1990-06-15 --time 12:00 --lat 78.22 --lon 15.65 --tz Europe/Oslo"
+    proc = run("--a-birth", polar, "--b", str(PARTNER), "--houses", "placidus", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    chart = json.loads((tmp_path / "composite.json").read_text())
+    assert "polar_fallback_whole_sign" in chart["meta"]["flags"]
+    assert proc.stdout.splitlines().count("Note: a_polar_fallback_whole_sign") == 1
+    assert _notes_after_wrote(proc.stdout) == [f"Note: {flag}" for flag in chart["meta"]["flags"]]
+
+
+def test_davison_notes_printed_once(tmp_path):
+    # B is untimed: natal-chart says so for B's cast and again for the Davison cast, which is the
+    # output chart; the Davison chart's own flags are printed once, after the Wrote line.
+    untimed = "--name Untimed --date 1988-02-02 --geonameid 2643743"
+    proc = run("--a", str(EXAMPLE), "--b-birth", untimed, "--method", "davison", cwd=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    flags = json.loads((tmp_path / "davison.json").read_text())["meta"]["flags"]
+    assert "time_unknown" in flags
+    lines = proc.stdout.splitlines()
+    assert lines.count("Note: b_time_unknown") == 1
+    for flag in flags:
+        assert lines.count(f"Note: {flag}") == 1, proc.stdout
+    assert _notes_after_wrote(proc.stdout) == [f"Note: {flag}" for flag in flags]
+
+
 def test_out_with_empty_stem_exits_1(tmp_path):
     proc = run("--a", str(EXAMPLE), "--b", str(PARTNER), "--out", ".json", cwd=tmp_path)
     assert proc.returncode == 1

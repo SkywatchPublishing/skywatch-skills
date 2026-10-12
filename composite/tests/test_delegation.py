@@ -34,7 +34,7 @@ def _assert_launched_with_user_site(launch: dict, stand_in: Path) -> None:
 
 def test_cast_chart_launches_natal_chart_with_user_site_enabled(tmp_path):
     stand_in = _stand_in(tmp_path)
-    chart = cp.cast_chart(stand_in, "--name A --date 1990-06-15", tmp_path / "a.json")
+    chart = cp.cast_chart(stand_in, "--name A --date 1990-06-15", tmp_path / "a.json", "a")
     _assert_launched_with_user_site(chart["meta"]["launch"], stand_in)
 
 
